@@ -603,11 +603,15 @@ function commitSleeper() {
       + ", " + (sc.pass_td || 4) + "pt PaTD" + (sc.bonus_rec_te ? ", TE +" + sc.bonus_rec_te : ""),
     leagueId: lg.league_id, me: me || null
   };
-  draft = {drafted: new Set(), mine: new Set(), order: []};
+  var prior = draft || {drafted: new Set(), mine: new Set(), order: []};
+  var same = cfg && cfg.leagueId === lg.league_id;
+  draft = same
+    ? {drafted: new Set(prior.drafted), mine: new Set(prior.mine), order: prior.order.slice()}
+    : {drafted: new Set(), mine: new Set(), order: []};
   pendingLeague.picks.forEach(function (p) {
     if (!p.player_id) return;
+    if (!draft.drafted.has(p.player_id)) draft.order.push(p.player_id);
     draft.drafted.add(p.player_id);
-    draft.order.push(p.player_id);
     if (me && p.picked_by === me) draft.mine.add(p.player_id);
   });
   start();
@@ -637,8 +641,13 @@ document.getElementById("whoGo").addEventListener("click", commitSleeper);
 document.getElementById("mGo").addEventListener("click", function () {
   var c = readManual();
   if (!c) { msg("mMsg", "err", "Give yourself at least one starting spot."); return; }
+  // Player ids are stable, so a rules change re-scores the same board without
+  // forgetting who has already been taken.
+  c.leagueId = cfg && cfg.leagueId;
+  c.me = cfg && cfg.me;
+  c.name = (cfg && cfg.leagueId) ? cfg.name : c.name;
   cfg = c;
-  draft = {drafted: new Set(), mine: new Set(), order: []};
+  if (!draft) draft = {drafted: new Set(), mine: new Set(), order: []};
   start();
 });
 document.getElementById("basisSeg").addEventListener("click", function (e) {
@@ -660,14 +669,61 @@ document.getElementById("undo").addEventListener("click", function () {
   var last = draft.order[draft.order.length - 1];
   if (last) toggle(last, false);
 });
-document.getElementById("cfg").addEventListener("click", function () {
-  if (!confirm("Change your league settings? Your drafted players stay marked.")) return;
+// Settings opens prefilled with what is already set, and is escapable. Nothing is
+// destroyed by looking: picks survive a settings change, and wiping is its own button.
+function openSetup() {
+  if (cfg) {
+    var rec = (cfg.scoring || {}).rec || 0;
+    var f = rec >= 0.75 ? "PPR" : rec >= 0.25 ? "HALF" : "STD";
+    Array.prototype.forEach.call(document.querySelectorAll("#fmtSeg button"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.f === f));
+    });
+    document.getElementById("mTeams").value = cfg.teams || 12;
+    document.getElementById("mRounds").value = cfg.rounds || 16;
+    document.getElementById("mPtd").value = (cfg.scoring || {}).pass_td || 4;
+    document.getElementById("mTep").value = (cfg.scoring || {}).bonus_rec_te || 0;
+    var counts = {};
+    (cfg.roster || []).forEach(function (sl) { counts[sl] = (counts[sl] || 0) + 1; });
+    document.querySelectorAll("#slotGrid input").forEach(function (i) {
+      i.value = counts[i.dataset.slot] || 0;
+    });
+    if (cfg.leagueId) {
+      document.getElementById("lgId").value = cfg.leagueId;
+      document.getElementById("reSyncName").textContent = cfg.name || "my league";
+      document.getElementById("reSync").hidden = false;
+    }
+  }
+  document.getElementById("setupTop").hidden = !board;
   document.getElementById("app").hidden = true;
   document.getElementById("setup").hidden = false;
+  document.getElementById("whoBox").hidden = true;
+  document.getElementById("lgMsg").innerHTML = "";
+  document.getElementById("mMsg").innerHTML = "";
   window.scrollTo(0, 0);
+}
+function closeSetup() {
+  if (!board) return;
+  document.getElementById("setup").hidden = true;
+  document.getElementById("app").hidden = false;
+  window.scrollTo(0, 0);
+}
+document.getElementById("cfg").addEventListener("click", openSetup);
+document.getElementById("backBtn").addEventListener("click", closeSetup);
+document.getElementById("startOver").addEventListener("click", function () {
+  if (!confirm("Clear your league settings AND every player you have marked? "
+    + "This cannot be undone.")) return;
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  location.reload();
+});
+document.getElementById("reSyncGo").addEventListener("click", function () {
+  document.getElementById("lgId").value = cfg.leagueId;
+  loadSleeper();
 });
 addEventListener("keydown", function (e) {
-  if (e.key === "Escape") document.getElementById("pop").classList.remove("on");
+  if (e.key === "Escape") {
+    document.getElementById("pop").classList.remove("on");
+    if (!document.getElementById("setup").hidden) closeSetup();
+  }
 });
 
 if (restore()) start();

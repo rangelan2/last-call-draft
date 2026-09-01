@@ -94,6 +94,11 @@ select{min-width:150px}
 .seg2 button{padding:5px 11px;border-radius:5px;font-size:12.5px;color:var(--ink-2)}
 .seg2 button[aria-pressed=true]{background:var(--surface);color:var(--ink);font-weight:600;
   box-shadow:var(--shadow)}
+.setup-top{display:flex;align-items:center;gap:9px;margin-bottom:20px;padding-bottom:14px;
+  border-bottom:1px solid var(--line)}
+.setup-top .grow{flex:1}
+.btn.danger{color:var(--bad);border-color:var(--bad-soft)}
+.btn.danger:hover{border-color:var(--bad)}
 .foot-note{color:var(--ink-3);font-size:11.5px;line-height:1.6;margin-top:20px}
 
 /* ---------- board ---------- */
@@ -214,6 +219,11 @@ select{min-width:150px}
 
 <!-- ===================== SETUP ===================== -->
 <div class="setup" id="setup">
+  <div class="setup-top" id="setupTop" hidden>
+    <button class="btn" id="backBtn">&larr; Back to my board</button>
+    <span class="grow"></span>
+    <button class="btn danger" id="startOver">Start over</button>
+  </div>
   <h1>Last Call <span>2026</span></h1>
   <p class="lede">A draft board that scores every player under <em>your</em> league's rules, then
   ranks them against 100+ expert analysts. Set it up once and it remembers.</p>
@@ -227,6 +237,10 @@ select{min-width:150px}
       <div class="row">
         <input type="text" id="lgId" placeholder="Paste your Sleeper league ID" inputmode="numeric">
         <button class="btn pri" id="lgGo">Load league</button>
+      </div>
+      <div id="reSync" hidden style="margin-bottom:11px">
+        <button class="btn pri" id="reSyncGo">Re-sync <span id="reSyncName"></span></button>
+        <span class="hint" style="margin:0 0 0 8px">Pulls picks made since you last looked.</span>
       </div>
       <div id="lgMsg"></div>
       <div id="whoBox" hidden style="margin-top:12px">
