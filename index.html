@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Last Call — Fantasy Draft Guide</title>
+<meta name="description" content="A fantasy football draft board that scores every player under your league's exact rules.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F6F7F6; --surface:#FFFFFF; --surface-2:#EEF1EF; --surface-3:#E3E7E5;
+  --ink:#15181A; --ink-2:#4B5254; --ink-3:#838B8D;
+  --line:#DBDFDD; --line-2:#C3C9C6;
+  --accent:#B4711C; --accent-soft:#F5E8D2;
+  --good:#1C7A4E; --good-soft:#DDEFE5;
+  --bad:#B03A2B; --bad-soft:#F8E1DD;
+  --t1:#0D7A6F; --t2:#2F8B4F; --t3:#6D8F2A; --t4:#AC8611; --t5:#C4761F;
+  --t6:#B4552C; --t7:#9C3D3D; --t8:#7A4A63; --t9:#5C6370; --t10:#6E7478; --t11:#828789;
+  --shadow:0 1px 2px rgba(20,25,25,.05),0 3px 12px rgba(20,25,25,.05);
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --disp:"Archivo",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101314; --surface:#171B1C; --surface-2:#1D2223; --surface-3:#272D2E;
+  --ink:#E9EDEB; --ink-2:#A4ACAD; --ink-3:#6F7879;
+  --line:#282F30; --line-2:#394142;
+  --accent:#E3A64A; --accent-soft:#3A2E1B;
+  --good:#4FBF87; --good-soft:#16301F;
+  --bad:#E4796A; --bad-soft:#361C1A;
+  --t1:#2FB3A3; --t2:#5CC47D; --t3:#9BC44A; --t4:#DCB43A; --t5:#E39A4E;
+  --t6:#DE7C55; --t7:#D06B6B; --t8:#A98BA0; --t9:#8A9295; --t10:#78807F; --t11:#656C6D;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 3px 12px rgba(0,0,0,.25);
+}}
+:root[data-theme="dark"]{
+  --bg:#101314; --surface:#171B1C; --surface-2:#1D2223; --surface-3:#272D2E;
+  --ink:#E9EDEB; --ink-2:#A4ACAD; --ink-3:#6F7879;
+  --line:#282F30; --line-2:#394142;
+  --accent:#E3A64A; --accent-soft:#3A2E1B;
+  --good:#4FBF87; --good-soft:#16301F;
+  --bad:#E4796A; --bad-soft:#361C1A;
+  --t1:#2FB3A3; --t2:#5CC47D; --t3:#9BC44A; --t4:#DCB43A; --t5:#E39A4E;
+  --t6:#DE7C55; --t7:#D06B6B; --t8:#A98BA0; --t9:#8A9295; --t10:#78807F; --t11:#656C6D;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 3px 12px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:3px}
+[hidden]{display:none!important}
+
+/* ---------- setup ---------- */
+.setup{max-width:720px;margin:0 auto;padding:36px 20px 60px}
+.setup h1{font-family:var(--disp);font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0 0 6px}
+.setup h1 span{color:var(--accent)}
+.setup .lede{color:var(--ink-2);font-size:14px;line-height:1.55;margin:0 0 26px;max-width:56ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);
+  margin-bottom:14px;overflow:hidden}
+.panel > h2{font-family:var(--disp);font-size:10px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3);margin:0;padding:10px 15px 9px;
+  border-bottom:1px solid var(--line);background:var(--surface-2)}
+.panel .in{padding:15px}
+.hint{color:var(--ink-3);font-size:12px;line-height:1.5;margin:0 0 12px}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-family:var(--disp);font-size:9.5px;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--ink-3)}
+input[type=text],input[type=number],select{padding:7px 10px;border:1px solid var(--line-2);
+  border-radius:7px;background:var(--surface-2);font-size:13px;min-width:0}
+input[type=text]{min-width:220px}
+input[type=number]{width:66px;font-family:var(--mono);text-align:center}
+select{min-width:150px}
+.btn{padding:8px 14px;border:1px solid var(--line-2);border-radius:7px;background:var(--surface-2);
+  font-size:13px;font-weight:500}
+.btn:hover{border-color:var(--accent)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.5;cursor:default}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:11px}
+.msg{margin-top:11px;padding:9px 11px;border-radius:7px;font-size:12.5px;line-height:1.5}
+.msg.err{background:var(--bad-soft);color:var(--bad)}
+.msg.ok{background:var(--good-soft);color:var(--good)}
+.msg.work{background:var(--surface-2);color:var(--ink-2)}
+.or{display:flex;align-items:center;gap:11px;margin:16px 0;color:var(--ink-3);font-size:11px;
+  font-family:var(--disp);font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.seg2{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;
+  padding:2px;gap:2px}
+.seg2 button{padding:5px 11px;border-radius:5px;font-size:12.5px;color:var(--ink-2)}
+.seg2 button[aria-pressed=true]{background:var(--surface);color:var(--ink);font-weight:600;
+  box-shadow:var(--shadow)}
+.foot-note{color:var(--ink-3);font-size:11.5px;line-height:1.6;margin-top:20px}
+
+/* ---------- board ---------- */
+.bar{position:sticky;top:0;z-index:40;background:var(--surface);border-bottom:1px solid var(--line);
+  box-shadow:var(--shadow)}
+.bar-in{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 14px}
+.brand{font-family:var(--disp);font-size:15px;font-weight:700;letter-spacing:-.01em}
+.brand span{color:var(--accent);font-family:var(--mono);font-size:11px}
+.seg{display:flex;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:2px;gap:2px}
+.seg button{padding:4px 10px;border-radius:4px;font-size:12px;font-weight:500;color:var(--ink-2);white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+.search{flex:1;min-width:140px;max-width:260px}
+.search input{width:100%;padding:6px 10px;border:1px solid var(--line-2);border-radius:6px;
+  background:var(--surface-2);font-size:12px}
+.tools{display:flex;gap:6px;margin-left:auto}
+.tools .btn{padding:5px 10px;font-size:12px}
+.strip{display:flex;gap:16px;flex-wrap:wrap;padding:7px 14px;background:var(--surface-2);
+  border-bottom:1px solid var(--line);font-size:11.5px;color:var(--ink-2)}
+.strip b{color:var(--ink);font-weight:600}
+.strip .k{font-family:var(--disp);text-transform:uppercase;letter-spacing:.07em;font-size:10px;
+  color:var(--ink-3);font-weight:600;margin-right:5px}
+.wrap{display:grid;grid-template-columns:1fr 292px;gap:13px;padding:13px 14px 44px;align-items:start}
+@media (max-width:1060px){.wrap{grid-template-columns:1fr}}
+.cols{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(264px,1fr))}
+.col{background:var(--surface);border:1px solid var(--line);border-radius:9px;overflow:hidden;
+  box-shadow:var(--shadow)}
+.col-h{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);
+  background:var(--surface-2)}
+.col-h .pos{font-family:var(--disp);font-size:13px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.col-h .meta{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.col-h .repl{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.col-sub{display:grid;grid-template-columns:3px 30px 1fr 46px 38px 32px;gap:5px;padding:3px 7px 3px 0;
+  border-bottom:1px solid var(--line)}
+.col-sub span{font-family:var(--disp);font-size:8.5px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3)}
+.col-sub span:nth-child(2){text-align:center}
+.col-sub span:nth-child(n+4){text-align:right}
+.rows{max-height:min(62vh,620px);overflow-y:auto}
+.r{display:grid;grid-template-columns:3px 30px 1fr 46px 38px 32px;align-items:center;gap:5px;
+  height:27px;padding-right:7px;border-bottom:1px solid var(--line);cursor:pointer}
+.r:last-child{border-bottom:none}
+.r:hover{background:var(--surface-2)}
+.r .band{height:100%}
+.r .pr{font-family:var(--mono);font-size:10px;color:var(--ink-3);text-align:center}
+.r .nm{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:flex;align-items:center;gap:4px}
+.r .tm{font-family:var(--mono);font-size:10px;color:var(--ink-3);text-align:right}
+.r .m1,.r .m2{font-family:var(--mono);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}
+.r .m1{font-weight:600}
+.r .m2{color:var(--ink-3);font-size:10.5px}
+.r.gone{opacity:.32}
+.r.gone .nm{text-decoration:line-through}
+.r.mine{background:var(--good-soft)}
+.tag{font-family:var(--mono);font-size:8.5px;font-weight:600;padding:0 3px;border-radius:2px;flex-shrink:0}
+.tag.rk{background:var(--accent-soft);color:var(--accent)}
+.tag.inj{background:var(--bad-soft);color:var(--bad)}
+.tag.up{background:var(--good-soft);color:var(--good)}
+.tag.dn{background:var(--bad-soft);color:var(--bad)}
+.tsep{display:flex;align-items:center;gap:6px;padding:2px 8px 2px 10px;background:var(--surface-2);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tsep span{font-family:var(--disp);font-size:9px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3)}
+.tsep .ln{flex:1;height:1px;background:var(--line-2)}
+.tsep.spent{opacity:.4}
+.rail{display:flex;flex-direction:column;gap:10px;position:sticky;top:92px}
+@media (max-width:1060px){.rail{position:static}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);
+  overflow:hidden}
+.card h2{font-family:var(--disp);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);margin:0;padding:8px 11px 7px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.card .body{padding:9px 11px 11px}
+.card.pick{border-color:var(--accent)}
+.card.pick h2{background:var(--accent-soft);color:var(--accent)}
+.rec{display:grid;grid-template-columns:3px 1fr auto;gap:8px;align-items:center;padding:7px 11px 7px 0;
+  border-bottom:1px solid var(--line);cursor:pointer}
+.rec:last-child{border-bottom:none}
+.rec:hover{background:var(--surface-2)}
+.rec .band{height:26px}
+.rec .nm{font-size:13px;font-weight:600}
+.rec .why{font-size:11px;color:var(--ink-2);line-height:1.35;margin-top:1px}
+.rec .v{font-family:var(--mono);font-size:12px;font-weight:600;text-align:right}
+.alert{display:flex;gap:7px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:11.5px;line-height:1.4}
+.alert:last-child{border-bottom:none}
+.alert .pip{font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;
+  flex-shrink:0;height:fit-content}
+.alert.warn .pip{background:var(--bad-soft);color:var(--bad)}
+.alert.info .pip{background:var(--accent-soft);color:var(--accent)}
+.alert.ok .pip{background:var(--good-soft);color:var(--good)}
+.sl{display:grid;grid-template-columns:40px 1fr auto;gap:7px;align-items:baseline;padding:4px 11px;
+  border-bottom:1px solid var(--line);font-size:11.5px}
+.sl:last-child{border-bottom:none}
+.sl i{font-family:var(--disp);font-style:normal;font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--ink-3)}
+.sl.on i{color:var(--accent)}
+.sl b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sl em{font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.sl .mt{color:var(--ink-3);font-style:italic}
+.empty{color:var(--ink-3);font-size:11.5px;line-height:1.45}
+.pop{position:fixed;z-index:60;width:248px;background:var(--surface);border:1px solid var(--line-2);
+  border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.16);padding:10px 12px;display:none;font-size:12px}
+.pop.on{display:block}
+.pop .pn{font-weight:600;font-size:13px}
+.pop .ps{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-bottom:8px}
+.pop dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0;font-size:11.5px}
+.pop dt{color:var(--ink-3)}
+.pop dd{margin:0;font-family:var(--mono);text-align:right}
+.pop .note{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);color:var(--ink-2);
+  font-size:11px;line-height:1.45}
+.pop .acts{display:flex;gap:6px;margin-top:9px}
+.pop .acts button{flex:1;padding:5px;border:1px solid var(--line-2);border-radius:5px;font-size:11px;
+  background:var(--surface-2)}
+.foot{padding:0 14px 34px;color:var(--ink-3);font-size:11px;line-height:1.6;max-width:900px}
+.foot code{font-family:var(--mono);font-size:10.5px;background:var(--surface-2);padding:1px 5px;border-radius:3px}
+.foot b{color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ===================== SETUP ===================== -->
+<div class="setup" id="setup">
+  <h1>Last Call <span>2026</span></h1>
+  <p class="lede">A draft board that scores every player under <em>your</em> league's rules, then
+  ranks them against 100+ expert analysts. Set it up once and it remembers.</p>
+
+  <div class="panel">
+    <h2>Fastest: pull my settings from Sleeper</h2>
+    <div class="in">
+      <p class="hint">Open your league in Sleeper. The league ID is the long number in the web
+      address, like <code>sleeper.com/leagues/<b>1234567890123456789</b>/team</code>. This reads
+      your scoring, roster slots, and — once the draft starts — every pick as it happens.</p>
+      <div class="row">
+        <input type="text" id="lgId" placeholder="Paste your Sleeper league ID" inputmode="numeric">
+        <button class="btn pri" id="lgGo">Load league</button>
+      </div>
+      <div id="lgMsg"></div>
+      <div id="whoBox" hidden style="margin-top:12px">
+        <div class="fld"><label>Which manager are you?</label>
+          <div class="row"><select id="whoSel"></select>
+          <button class="btn pri" id="whoGo">That's me</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="or">or</div>
+
+  <div class="panel">
+    <h2>Set it up by hand</h2>
+    <div class="in">
+      <p class="hint">For ESPN, Yahoo, NFL.com, or anywhere that isn't Sleeper. You can change
+      any of this later.</p>
+      <div class="fld" style="margin-bottom:14px">
+        <label>Scoring</label>
+        <div class="seg2" id="fmtSeg">
+          <button data-f="PPR" aria-pressed="false">Full PPR</button>
+          <button data-f="HALF" aria-pressed="true">Half PPR</button>
+          <button data-f="STD" aria-pressed="false">Standard</button>
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:14px">
+        <div class="fld"><label>Teams</label><input type="number" id="mTeams" value="12" min="4" max="20"></div>
+        <div class="fld"><label>Rounds</label><input type="number" id="mRounds" value="16" min="1" max="30"></div>
+        <div class="fld"><label>Pass TD</label><input type="number" id="mPtd" value="4" min="1" max="8"></div>
+        <div class="fld"><label>TE bonus</label><input type="number" id="mTep" value="0" min="0" max="2" step="0.25"></div>
+      </div>
+      <div class="fld"><label style="margin-bottom:5px">Starting lineup</label>
+        <div class="grid" id="slotGrid"></div>
+      </div>
+      <div class="row" style="margin-top:15px">
+        <button class="btn pri" id="mGo">Build my board</button>
+      </div>
+      <div id="mMsg"></div>
+    </div>
+  </div>
+
+  <p class="foot-note">Everything runs in your browser. Nothing is uploaded, and your settings and
+  picks are saved on this device only. Projections and expert rankings were pulled
+  <span id="genAt"></span>.</p>
+</div>
+
+<!-- ===================== BOARD ===================== -->
+<div id="app" hidden>
+  <div class="bar">
+    <div class="bar-in">
+      <span class="brand">Last Call <span>2026</span></span>
+      <div class="seg" id="basisSeg">
+        <button data-b="ecr" aria-pressed="false">Consensus</button>
+        <button data-b="blend" aria-pressed="true">Blend</button>
+        <button data-b="vor" aria-pressed="false">Projection</button>
+      </div>
+      <div class="search"><input id="q" type="search" placeholder="Search players"></div>
+      <div class="tools">
+        <button class="btn" id="hide">Hide drafted</button>
+        <button class="btn" id="undo">Undo</button>
+        <button class="btn" id="cfg">Settings</button>
+      </div>
+    </div>
+    <div class="strip" id="strip"></div>
+  </div>
+  <div class="wrap">
+    <div class="cols" id="cols"></div>
+    <aside class="rail" id="rail"></aside>
+  </div>
+  <div class="foot" id="foot"></div>
+</div>
+<div class="pop" id="pop"></div>
+
+<script src="payload.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
