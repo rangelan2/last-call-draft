@@ -16,7 +16,7 @@ var SLOT_ORDER = ["QB","RB","WR","TE","FLEX","SUPER_FLEX","K","DEF","BN"];
 var KEY = "lastcall.guide.v1";
 
 var cfg = null, board = null, draft = null;
-var basis = "blend", query = "", hideGone = false;
+var basis = "blend", query = "", hideGone = false, expert = false;
 
 /* ---------------- persistence ---------------- */
 function save() {
@@ -284,39 +284,71 @@ function lineup(seq) {
           need: need};
 }
 
-// Who to take now: value first, nudged by what the roster still needs and by how
-// close a tier is to emptying. Reasons are shown so the call can be overruled.
+// Who to take now. Value leads, nudged by what the roster still needs and by tiers
+// about to empty. Reasons are written for someone who does not follow football, and
+// are shown so the call can be overruled.
 function advise(seq, lu) {
-  var open = openPlayers(seq).filter(function (p) { return !p.late; });
-  if (!open.length) return [];
-  var top = open[0].blendVor, unit = Math.max(Math.abs(top), 1);
-  var gap = {};
+  var all = openPlayers(seq);
+  var round = Math.floor(draft.order.length / cfg.teams) + 1;
+  var totalRounds = cfg.rounds || 16;
+  var lateEnough = round >= totalRounds - 1;
+
+  // Kickers and defenses are the classic beginner trap: they look draftable on
+  // value long before anyone should spend a pick on one. Hold them until the end,
+  // then insist on them so she does not finish the draft without either.
+  var needKD = [];
   lu.filled.forEach(function (f) {
     if (f.p) return;
+    if (f.sl === "K" || f.sl === "DEF") needKD.push(f.sl);
+  });
+  if (lateEnough && needKD.length) {
+    return needKD.slice(0, 2).map(function (sl) {
+      var best = all.filter(function (p) { return p.pos === sl; })[0];
+      if (!best) return null;
+      return {p: best, why: sl === "K"
+        ? "The draft is nearly over and you have no kicker. Any of the top few is fine."
+        : "The draft is nearly over and you have no defense. Take the best one left."};
+    }).filter(Boolean);
+  }
+
+  var open = all.filter(function (p) { return !p.late; });
+  if (!open.length) return [];
+  var top = open[0].blendVor, unit = Math.max(Math.abs(top), 1);
+
+  var gap = {};
+  lu.filled.forEach(function (f) {
+    if (f.p || f.sl === "K" || f.sl === "DEF") return;
     (FLEXP[f.sl] || [f.sl]).forEach(function (pos) { gap[pos] = (gap[pos] || 0) + 1; });
   });
+
   var scored = open.slice(0, 45).map(function (p) {
-    var score = p.blendVor, why = [];
-    if (gap[p.pos]) {
-      score += unit * 0.14;
-      why.push("fills your open " + p.pos);
-    }
-    var sameTier = open.filter(function (x) { return x.pos === p.pos && tierOf(x) === tierOf(p); });
-    if (sameTier.length <= 2 && sameTier[0] === p) {
-      score += unit * 0.10;
-      why.push(sameTier.length === 1 ? "last of his tier" : "only " + sameTier.length + " left in tier");
-    }
-    if (p.adp && p.adp - (draft.order.length + 1) >= 10) {
-      score += unit * 0.05;
-      why.push("normally gone by pick " + Math.round(p.adp));
-    }
-    if (!why.length) why.push("best value on the board");
-    if (p.inj) why.push(String(p.inj).toLowerCase());
-    return {p: p, score: score, why: why.slice(0, 2).join(" · ")};
+    var score = p.blendVor, why = [], best = open[0] === p;
+    var samePos = open.filter(function (x) { return x.pos === p.pos; });
+    var bestAtPos = samePos[0] === p;
+    var tierMates = samePos.filter(function (x) { return tierOf(x) === tierOf(p); });
+
+    if (gap[p.pos]) score += unit * 0.14;
+    if (tierMates.length <= 2 && tierMates[0] === p) score += unit * 0.10;
+    if (p.adp && p.adp - (draft.order.length + 1) >= 10) score += unit * 0.05;
+
+    // Two short sentences that read like a person wrote them. No counts here: a
+    // flex slot can be filled by three different positions, so "you need 3 running
+    // backs" would contradict the roster panel and confuse rather than help.
+    var lead = best ? "The best player left, at any position"
+             : bestAtPos ? "The best " + LONGPOS[p.pos] + " left"
+             : "Still one of the best available";
+    if (gap[p.pos]) lead += ", and you still need a " + LONGPOS[p.pos];
+    var tail = "";
+    if (tierMates.length === 1) tail = " He is the last one at this level before a real drop.";
+    else if (tierMates.length === 2) tail = " Only two are left at this level.";
+    var flag = p.inj ? " Listed " + String(p.inj).toLowerCase() + "." : "";
+    return {p: p, score: score, why: lead + "." + tail + flag};
   });
   scored.sort(function (a, b) { return b.score - a.score; });
   return scored.slice(0, 3);
 }
+var LONGPOS = {QB:"quarterback", RB:"running back", WR:"receiver", TE:"tight end",
+               K:"kicker", DEF:"defense"};
 
 /* ---------------- render ---------------- */
 function render() {
@@ -375,7 +407,8 @@ function renderCols(seq) {
       + '<span class="repl">repl ' + Math.round(board.repl[pos] || 0) + "</span>"
       + '<span class="meta">' + left + "/" + all.length + " left</span></div>"
       + '<div class="col-sub"><i></i><span>#</span><span>Player</span><span>Tm·Bye</span>'
-      + "<span>$</span><span>ECR</span></div>"
+      + "<span>" + (expert ? "$" : "Value") + "</span><span>"
+      + (expert ? "ECR" : "Experts") + "</span></div>"
       + '<div class="rows">' + (rows || '<div class="empty" style="padding:10px">No match.</div>')
       + "</div></section>";
   });
@@ -386,14 +419,30 @@ function renderRail(seq) {
   var lu = lineup(seq), recs = advise(seq, lu), open = openPlayers(seq);
   var n = draft.order.length + 1, rd = Math.floor((n - 1) / cfg.teams) + 1;
 
-  var pickHtml = recs.map(function (r) {
+  var pickHtml = recs.map(function (r, i) {
     return '<div class="rec" data-sid="' + esc(r.p.sid) + '">'
       + '<i class="band" style="background:' + tv(tierOf(r.p)) + '"></i>'
       + '<span><span class="nm">' + esc(r.p.name) + "</span>"
-      + '<div class="why">' + esc(r.p.pos + r.p._pr) + " · " + esc(r.why) + "</div></span>"
+      + '<div class="why">' + (i === 0 ? "" : esc(LONGPOS[r.p.pos]) + ", " + esc(r.p.team) + " — ")
+      + esc(i === 0 ? r.why : r.why.split(".")[0] + ".") + "</div></span>"
       + '<span class="v">' + (r.p.auction ? "$" + r.p.auction : Math.round(r.p.blendVor))
       + "</span></div>";
   }).join("") || '<div class="body"><div class="empty">Board is empty.</div></div>';
+
+  // What the lineup is still missing, said plainly.
+  var missing = {};
+  lu.filled.forEach(function (f) {
+    if (f.p) return;
+    var label = FLEXP[f.sl] ? "flex" : LONGPOS[f.sl] || f.sl;
+    missing[label] = (missing[label] || 0) + 1;
+  });
+  var mk = Object.keys(missing);
+  var needHtml = mk.length
+    ? "You still need " + mk.map(function (k) {
+        var n = missing[k];
+        return "<b>" + n + " " + k + (n > 1 && k !== "flex" ? "s" : "") + "</b>";
+      }).join(", ") + ". Anything after that is bench depth."
+    : '<span class="done">Your starting lineup is full.</span> Everything from here is bench depth.';
 
   var watch = board.positions.map(function (pos) {
     var pool = open.filter(function (p) { return p.pos === pos; });
@@ -403,10 +452,10 @@ function renderRail(seq) {
     var top = pool[0], lft = pool.filter(function (p) { return tierOf(p) === tierOf(top); }).length;
     if (tierOf(top) >= deep)
       return '<div class="alert warn"><i class="pip">' + pos + "</i><span>"
-        + "Tiers are used up. Best left: " + esc(shortName(top.name)) + ".</span></div>";
+        + "The good ones are gone. Best left: " + esc(shortName(top.name)) + ".</span></div>";
     var cls = lft <= 2 ? "warn" : lft <= 4 ? "info" : "ok";
-    return '<div class="alert ' + cls + '"><i class="pip">' + pos + "</i><span>Tier "
-      + tierOf(top) + " has <b>" + lft + "</b> left. Best: " + esc(shortName(top.name))
+    return '<div class="alert ' + cls + '"><i class="pip">' + pos + "</i><span><b>"
+      + lft + "</b> left at this level. Best: " + esc(shortName(top.name))
       + ".</span></div>";
   }).join("");
 
@@ -438,12 +487,14 @@ function renderRail(seq) {
 
   document.getElementById("rail").innerHTML =
     '<div class="card pick"><h2>Take one of these</h2>' + pickHtml + "</div>"
+    + '<div class="card"><h2>What you still need</h2>'
+    + '<div class="needline">' + needHtml + "</div></div>"
     + '<div class="card"><h2>Round ' + rd + " · pick " + n + "</h2>"
     + '<div class="body"><div class="empty">' + draft.order.length
-    + " players off the board. Click a name to mark him gone; Cmd-click (or Ctrl-click) "
-    + "to add him to your team.</div></div></div>"
+    + " players off the board. Click a name to mark him taken, or type it in the search "
+    + "box and press Enter. Use <b>I drafted him</b> for your own picks.</div></div></div>"
     + (run ? '<div class="card"><h2>Right now</h2><div class="body">' + run + "</div></div>" : "")
-    + '<div class="card"><h2>Tier watch</h2><div class="body">' + watch + "</div></div>"
+    + '<div class="card"><h2>Getting thin</h2><div class="body">' + watch + "</div></div>"
     + (clash ? '<div class="card"><h2>Bye conflict</h2><div class="body">' + clash + "</div></div>" : "")
     + '<div class="card"><h2>My team · ' + lu.mine.length + "</h2>" + rosterHtml + "</div>";
 }
@@ -650,6 +701,17 @@ document.getElementById("mGo").addEventListener("click", function () {
   if (!draft) draft = {drafted: new Set(), mine: new Set(), order: []};
   start();
 });
+document.getElementById("expert").addEventListener("click", function () {
+  expert = !expert;
+  this.textContent = expert ? "Simple view" : "Expert view";
+  document.getElementById("basisSeg").hidden = !expert;
+  if (!expert) {
+    basis = "blend";
+    Array.prototype.forEach.call(document.querySelectorAll("#basisSeg button"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.b === "blend")); });
+  }
+  render();
+});
 document.getElementById("basisSeg").addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return;
   basis = b.dataset.b;
@@ -658,8 +720,21 @@ document.getElementById("basisSeg").addEventListener("click", function (e) {
   document.getElementById("pop").classList.remove("on");
   render();
 });
-document.getElementById("q").addEventListener("input", function (e) {
-  query = e.target.value; renderCols(ordered()); });
+var qBox = document.getElementById("q");
+qBox.addEventListener("input", function (e) { query = e.target.value; renderCols(ordered()); });
+// Typing a name and pressing Enter marks the top match as taken. Between her own
+// picks she may have eleven names to log, and clicking each one is too slow.
+qBox.addEventListener("keydown", function (e) {
+  if (e.key !== "Enter") return;
+  var t = query.trim().toLowerCase();
+  if (!t) return;
+  var hit = ordered().filter(function (p) {
+    return !draft.drafted.has(p.sid) && p.name.toLowerCase().indexOf(t) >= 0; })[0];
+  if (!hit) return;
+  toggle(hit.sid, e.metaKey || e.ctrlKey || e.shiftKey);
+  query = ""; qBox.value = "";
+  renderCols(ordered());
+});
 document.getElementById("hide").addEventListener("click", function () {
   hideGone = !hideGone;
   this.textContent = hideGone ? "Show drafted" : "Hide drafted";
@@ -725,6 +800,41 @@ addEventListener("keydown", function (e) {
     if (!document.getElementById("setup").hidden) closeSetup();
   }
 });
+
+document.getElementById("htToggle").addEventListener("click", function () {
+  var b = document.getElementById("htBody"), open = !b.hidden;
+  b.hidden = open;
+  this.setAttribute("aria-expanded", String(!open));
+  this.innerHTML = "How to use this &nbsp;" + (open ? "\u2193" : "\u2191");
+  if (!open && !b.innerHTML) b.innerHTML = HELP;
+});
+var HELP = ''
+  + "<h3>The short version</h3>"
+  + "When it is your turn, take the top name under <b>Take one of these</b>. It is "
+  + "already weighing who is best, what your roster is missing, and who is about to "
+  + "run out. If you do nothing else, that will give you a solid team."
+  + "<h3>Keeping the board honest</h3>"
+  + "The board is only right if it knows who is gone. Every time anyone drafts "
+  + "someone, mark him: click his name, or type it in the search box and press "
+  + "Enter. When <b>you</b> draft someone, open him and hit <b>I drafted him</b> so "
+  + "he lands on your team. If your league is on Sleeper, this happens by itself."
+  + "<h3>What the numbers mean</h3>"
+  + "<b>Value</b> is what the player is worth in a $200 auction. It is there to "
+  + "compare two players, not because you are spending money. <b>Experts</b> is where "
+  + "roughly 100 analysts rank him overall. A player with a good value and a worse "
+  + "expert rank is one this board likes more than the crowd does."
+  + "<h3>Colours and tags</h3>"
+  + "The coloured bar is his tier: players in the same tier are close enough that "
+  + "you should not agonise. When a tier is nearly empty, that position is about to "
+  + "get much worse, which is what <b>Getting thin</b> is telling you. "
+  + "<b>R</b> means rookie. Red tags are injuries."
+  + "<h3>Two traps</h3>"
+  + "Do not draft a kicker or a defense until the last two rounds, however tempting "
+  + "the numbers look. This board will tell you when. And watch <b>bye weeks</b>: if "
+  + "too many of your starters are off in the same week, you will be short that week."
+  + "<h3>If it goes wrong</h3>"
+  + "<b>Undo</b> reverses the last thing you marked. <b>Settings</b> lets you fix your "
+  + "league setup without losing your picks.";
 
 if (restore()) start();
 })();
