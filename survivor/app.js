@@ -234,9 +234,11 @@ function renderMoney() {
 function renderCols() {
   var infl = inflation(), html = "";
   board.positions.forEach(function (pos) {
-    var all = board.players.filter(function (p) { return p.pos === pos; }).slice(0, 55);
+    var all = board.players.filter(function (p) { return p.pos === pos; });
     var live = all.filter(function (p) { return draft.gone[p.sid] == null; });
-    var rows = live.slice(0, 40).map(function (p) {
+    // No cap. 19 teams start 47 running backs and 75 receivers, and this format
+    // rewards knowing the deep end, so the whole pool is listed and scrolls.
+    var rows = live.map(function (p) {
       return '<div class="pr' + (draft.mine[p.sid] != null ? " mine" : "") + '" data-sid="'
         + esc(p.sid) + '"><i class="band" style="background:' + tv(Math.ceil(p.posRank / 6))
         + '"></i><span class="n">' + esc(p.name) + flags(p) + "</span>"
