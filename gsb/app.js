@@ -248,11 +248,13 @@ function clampN(x, a, c) { return x < a ? a : x > c ? c : x; }
 // Analysts who disagree about a player also draft him over a wider range. The
 // FantasyPros stdev of expert rank regresses on ECR as sd = 1.339 + 0.1607*ecr
 // (R2 = 0.77), so the ratio is a per-player width multiplier.
-function shapeOf(p) {
-  if (p.sdx == null || p.ecr == null) return 1;
-  return clampN(p.sdx / (1.339 + 0.1607 * p.ecr), 0.6, 1.8);
-}
-function sdOf(p) { return Math.max(2.5, (2.5 + 0.18 * p.ea) * shapeOf(p)); }
+// Width comes straight from what Fantasy Football Calculator measured across 1,837
+// real 12-team half-PPR drafts: sd = 0.79 + 0.105 * ADP. An earlier version used
+// 2.5 + 0.18 * ADP, about 2.5x too wide at the top of the board, which made
+// everything look safe to wait on. The per-player multiplier that stood here has
+// been dropped: expert-rank disagreement explained about 6% of the variance and
+// pointed the wrong way on the elite tight ends.
+function sdOf(p) { return Math.max(1.5, 0.79 + 0.105 * p.ea); }
 
 function sCurve(p, x) {
   var s = 0.5513 * sdOf(p);
@@ -349,6 +351,17 @@ function pickNow() { return Math.max(1, draft.order.length + 1 + pickOffset); }
 // number moves the survival windows but leaves every policy gate a round behind, and
 // the draft can end with an unfilled defense slot.
 function roundNow() { return Math.floor((pickNow() - 1) / CONFIG.teams) + 1; }
+// How many of HER picks are left, counting this one. Policy gates key off this
+// rather than the round, because it is derived from her own roster and an un-logged
+// opponent pick cannot corrupt it. Three missed logs used to end the draft with an
+// empty defense slot while the ledger still asked for one.
+function myPicksLeft() {
+  var byRoster = CONFIG.roster.filter(function (x) { return x !== "IR"; }).length
+    - lineupCount();
+  var byClock = MY.filter(function (x) { return x >= pickNow(); }).length;
+  return Math.max(Math.min(byRoster, byClock), byRoster > 0 ? 1 : 0);
+}
+function lineupCount() { return draft.mine.size; }
 function open_() { return board.players.filter(function (p) { return !draft.drafted.has(p.sid); }); }
 function mine_() { return board.players.filter(function (p) { return draft.mine.has(p.sid); }); }
 function tv(t) { return "var(--t" + Math.min(t || 11, 11) + ")"; }
@@ -412,8 +425,8 @@ function blockedReason(p, lu) {
       if (!(p.eliteTE && myEliteTE >= 1)) return "we already have our tight end";
     } else return "we already have two tight ends";
   }
-  if (p.late && round < last - 1) return "kickers and defenses come last";
-  if (p.avail === "out" && round < last - 2) return "he is not playing any time soon";
+  if (p.late && myPicksLeft() > 2) return "kickers and defenses come last";
+  if (p.avail === "out" && myPicksLeft() > 3) return "he is not playing any time soon";
   return null;
 }
 
@@ -425,7 +438,7 @@ function advise() {
   lu.filled.forEach(function (f) {
     if (!f.p && (f.sl === "K" || f.sl === "DEF")) missingLate.push(f.sl);
   });
-  if (round >= last - 1 && missingLate.length) {
+  if (myPicksLeft() <= 2 && missingLate.length) {
     return missingLate.map(function (sl) {
       var best = all.filter(function (p) { return p.pos === sl; })[0];
       return best ? {p: best, why: "The draft is almost over and we still need a "
@@ -484,7 +497,7 @@ function advise() {
 // Late-round stashes: two IR slots mean a hurt player with real upside is free value.
 function stashes() {
   var lu = lineup();
-  if (roundNow() < CONFIG.rounds - 3) return [];
+  if (myPicksLeft() > 4) return [];
   var used = lu.mine.filter(function (p) { return p.irOk; }).length;
   if (used >= CONFIG.irSlots) return [];
   return open_().filter(function (p) { return p.irOk && !p.late; })
@@ -775,6 +788,9 @@ function search() {
 function choose(i, ours, undo) {
   var p = results[i];
   if (!p) return;
+  // A bare tap on an already-marked row used to fall through to mark(), which is a
+  // toggle, silently returning a player to the board — including one on her roster.
+  if (draft.drafted.has(p.sid) && !undo && !ours) { resEl.hidden = true; return; }
   if (undo) {                       // put a mis-marked player back on the board
     if (draft.drafted.has(p.sid)) mark(p.sid, false);
   } else if (draft.drafted.has(p.sid) && ours && !draft.mine.has(p.sid)) {
@@ -822,8 +838,10 @@ document.addEventListener("click", function (e) {
   if (!e.target.closest("#fixPick")) return;
   var cur = pickNow();
   var v = prompt("Which pick is the draft actually on right now?\n\n"
-    + "The board thinks it is pick " + cur + ". If someone drafted and it was not "
-    + "logged, put the real number here.", String(cur));
+    + "The board thinks it is pick " + cur + ".\n\n"
+    + "Use this only for picks you are NOT going to log. If you are about to catch "
+    + "up by marking those players, do that instead and leave this alone, or the "
+    + "board will count them twice. You can always correct it again.", String(cur));
   if (v == null) return;
   var want = parseInt(v, 10);
   if (!want || want < 1) return;
