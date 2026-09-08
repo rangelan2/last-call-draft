@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GSB High Stakes Draft Board</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F6F7F6; --surface:#FFFFFF; --surface-2:#EEF1EF; --surface-3:#E3E7E5;
+  --ink:#15181A; --ink-2:#4B5254; --ink-3:#838B8D;
+  --line:#DBDFDD; --line-2:#C3C9C6;
+  --accent:#B4711C; --accent-soft:#F5E8D2;
+  --good:#1C7A4E; --good-soft:#DDEFE5;
+  --bad:#B03A2B; --bad-soft:#F8E1DD;
+  --warn:#8A6212; --warn-soft:#F7EBD2;
+  --t1:#0D7A6F; --t2:#2F8B4F; --t3:#6D8F2A; --t4:#AC8611; --t5:#C4761F;
+  --t6:#B4552C; --t7:#9C3D3D; --t8:#7A4A63; --t9:#5C6370; --t10:#6E7478; --t11:#828789;
+  --shadow:0 1px 2px rgba(20,25,25,.05),0 3px 12px rgba(20,25,25,.05);
+  --lift:0 8px 30px rgba(20,25,25,.13);
+  --qb:#8C5C77; --rb:#128C7E; --wr:#3B72C4; --te:#C07A18; --k:#6B7378; --def:#7BA02F;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --disp:"Archivo",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101314; --surface:#171B1C; --surface-2:#1D2223; --surface-3:#272D2E;
+  --ink:#E9EDEB; --ink-2:#A4ACAD; --ink-3:#6F7879;
+  --line:#282F30; --line-2:#394142;
+  --accent:#E3A64A; --accent-soft:#3A2E1B;
+  --good:#4FBF87; --good-soft:#16301F;
+  --bad:#E4796A; --bad-soft:#361C1A;
+  --warn:#E0B65C; --warn-soft:#332813;
+  --t1:#2FB3A3; --t2:#5CC47D; --t3:#9BC44A; --t4:#DCB43A; --t5:#E39A4E;
+  --t6:#DE7C55; --t7:#D06B6B; --t8:#A98BA0; --t9:#8A9295; --t10:#78807F; --t11:#656C6D;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 3px 12px rgba(0,0,0,.25);
+  --lift:0 8px 30px rgba(0,0,0,.45);
+}}
+:root[data-theme="dark"]{
+  --bg:#101314; --surface:#171B1C; --surface-2:#1D2223; --surface-3:#272D2E;
+  --ink:#E9EDEB; --ink-2:#A4ACAD; --ink-3:#6F7879;
+  --line:#282F30; --line-2:#394142;
+  --accent:#E3A64A; --accent-soft:#3A2E1B;
+  --good:#4FBF87; --good-soft:#16301F;
+  --bad:#E4796A; --bad-soft:#361C1A;
+  --warn:#E0B65C; --warn-soft:#332813;
+  --t1:#2FB3A3; --t2:#5CC47D; --t3:#9BC44A; --t4:#DCB43A; --t5:#E39A4E;
+  --t6:#DE7C55; --t7:#D06B6B; --t8:#A98BA0; --t9:#8A9295; --t10:#78807F; --t11:#656C6D;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 3px 12px rgba(0,0,0,.25);
+  --lift:0 8px 30px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+[hidden]{display:none!important}
+.tnum{font-variant-numeric:tabular-nums}
+
+.bar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--line);
+  box-shadow:var(--shadow)}
+.bar-in{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 18px;
+  max-width:1360px;margin:0 auto}
+.brand{font-family:var(--disp);font-size:15px;font-weight:700;letter-spacing:-.01em}
+.brand em{font-style:normal;color:var(--ink-3);font-weight:500;font-size:12px;margin-left:8px}
+.turn{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-2)}
+.turn b{color:var(--ink)}
+.turn .pill{font-family:var(--mono);font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;
+  background:var(--surface-2);border:1px solid var(--line-2)}
+.turn.up .pill{background:var(--good);border-color:var(--good);color:#fff}
+.tools{display:flex;gap:6px}
+.btn{padding:6px 11px;border:1px solid var(--line-2);border-radius:7px;font-size:12.5px;
+  background:var(--surface-2);color:var(--ink-2)}
+.btn:hover{border-color:var(--accent);color:var(--ink)}
+
+.page{max-width:1360px;margin:0 auto;padding:18px 18px 60px}
+
+/* ---- the one thing she has to do: log a pick ---- */
+.mark{background:var(--surface);border:1px solid var(--line);border-radius:13px;
+  box-shadow:var(--lift);padding:16px 18px;margin-bottom:16px;position:relative;z-index:30}
+.mark h2{font-family:var(--disp);font-size:15px;font-weight:700;margin:0 0 3px}
+.mark p{margin:0 0 11px;color:var(--ink-3);font-size:12.5px}
+.mark .box{position:relative}
+.mark input{width:100%;padding:13px 15px;font-size:17px;border:2px solid var(--line-2);
+  border-radius:10px;background:var(--surface-2)}
+.mark input:focus{border-color:var(--accent);outline:none}
+.mark input::placeholder{color:var(--ink-3);font-size:16px}
+.res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);
+  border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--lift);overflow:hidden;
+  max-height:340px;overflow-y:auto;z-index:40}
+.res .row{display:grid;grid-template-columns:46px 1fr auto auto;gap:11px;align-items:center;
+  padding:9px 13px;border-bottom:1px solid var(--line);cursor:pointer;width:100%;text-align:left}
+.res .row:last-child{border-bottom:none}
+.res .row:hover,.res .row.sel{background:var(--accent-soft)}
+.res .row .nm{font-size:14.5px;font-weight:600}
+.res .row .sub{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.res .row .take{font-family:var(--disp);font-size:10px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-3);border:1px solid var(--line-2);border-radius:6px;
+  padding:4px 8px}
+.res .row:hover .take,.res .row.sel .take{border-color:var(--accent);color:var(--accent)}
+.res .none{padding:13px;color:var(--ink-3);font-size:13px}
+.pos{font-family:var(--disp);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#fff;
+  padding:4px 0;border-radius:6px;text-align:center;display:block}
+.pos.QB{background:var(--qb)} .pos.RB{background:var(--rb)} .pos.WR{background:var(--wr)}
+.pos.TE{background:var(--te)} .pos.K{background:var(--k)} .pos.DEF{background:var(--def)}
+.mark .hint{margin-top:9px;font-size:12px;color:var(--ink-3)}
+.mark .hint b{color:var(--ink-2)}
+
+.grid{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+@media (max-width:1040px){.grid{grid-template-columns:1fr}}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);overflow:hidden;margin-bottom:14px}
+.card > h2{font-family:var(--disp);font-size:10.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3);margin:0;padding:10px 14px 9px;
+  border-bottom:1px solid var(--line);background:var(--surface-2)}
+.card .in{padding:13px 14px}
+
+/* ---- the pick ---- */
+.card.take{border-color:var(--accent);border-width:2px}
+.card.take > h2{background:var(--accent);color:#fff}
+.pick{display:grid;grid-template-columns:52px 1fr auto;gap:13px;align-items:center;
+  padding:15px 15px;border-bottom:1px solid var(--line);cursor:pointer}
+.pick:last-child{border-bottom:none}
+.pick:hover{background:var(--surface-2)}
+.pick.top{background:var(--accent-soft)}
+.pick.top:hover{filter:brightness(.98)}
+.pick .nm{font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.pick.alt .nm{font-size:15px;font-weight:600}
+.pick .why{font-size:13px;color:var(--ink-2);line-height:1.45;margin-top:4px}
+.pick.alt .why{font-size:12px}
+.pick .go{font-family:var(--disp);font-size:10px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);border-radius:7px;
+  padding:7px 10px;white-space:nowrap}
+.pick.alt .go{color:var(--ink-3);border-color:var(--line-2)}
+
+.flag{display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:600;
+  padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle}
+.flag.out{background:var(--bad-soft);color:var(--bad)}
+.flag.watch{background:var(--warn-soft);color:var(--warn)}
+.flag.ir{background:var(--surface-3);color:var(--ink-2)}
+.flag.rk{background:var(--accent-soft);color:var(--accent)}
+.flag.elite{background:var(--good-soft);color:var(--good)}
+
+.rule{display:flex;gap:9px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:12.5px;
+  line-height:1.45;color:var(--ink-2)}
+.rule:last-child{border-bottom:none}
+.rule .ic{font-family:var(--mono);font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:4px;
+  height:fit-content;flex-shrink:0;background:var(--surface-3);color:var(--ink-3)}
+.rule.on .ic{background:var(--good-soft);color:var(--good)}
+.rule.hit .ic{background:var(--bad-soft);color:var(--bad)}
+.rule b{color:var(--ink)}
+
+.slot{display:grid;grid-template-columns:46px 1fr auto;gap:9px;align-items:baseline;
+  padding:6px 14px;border-bottom:1px solid var(--line);font-size:13px}
+.slot:last-child{border-bottom:none}
+.slot i{font-family:var(--disp);font-style:normal;font-size:9.5px;font-weight:700;
+  letter-spacing:.05em;color:var(--ink-3)}
+.slot.on i{color:var(--accent)}
+.slot b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slot em{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.slot .mt{color:var(--ink-3);font-style:italic;font-size:12.5px}
+.bench-h{font-family:var(--disp);font-size:9.5px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);padding:6px 14px 4px;background:var(--surface-2);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+
+.cols{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.col{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  box-shadow:var(--shadow)}
+.col-h{display:flex;align-items:center;gap:8px;padding:8px 11px;border-bottom:1px solid var(--line);
+  background:var(--surface-2)}
+.col-h .t{font-family:var(--disp);font-size:12.5px;font-weight:700}
+.col-h .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.rows{max-height:min(56vh,540px);overflow-y:auto}
+.pr{display:grid;grid-template-columns:3px 1fr 44px 34px;gap:6px;align-items:center;height:28px;
+  padding-right:9px;border-bottom:1px solid var(--line);cursor:pointer}
+.pr:last-child{border-bottom:none}
+.pr:hover{background:var(--surface-2)}
+.pr .band{height:100%}
+.pr .n{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr .tm{font-family:var(--mono);font-size:10px;color:var(--ink-3);text-align:right}
+.pr .v{font-family:var(--mono);font-size:11px;font-weight:600;text-align:right}
+.pr.gone{opacity:.3}
+.pr.gone .n{text-decoration:line-through}
+.pr.mine{background:var(--good-soft)}
+.tsep{display:flex;align-items:center;gap:7px;padding:3px 10px;background:var(--surface-2);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tsep span{font-family:var(--disp);font-size:9px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3)}
+.tsep .ln{flex:1;height:1px;background:var(--line-2)}
+.muted{color:var(--ink-3);font-size:12.5px;line-height:1.5}
+.foot{max-width:1360px;margin:0 auto;padding:6px 18px 40px;color:var(--ink-3);font-size:11.5px;
+  line-height:1.6}
+.foot b{color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="bar-in">
+    <span class="brand">GSB High Stakes <em id="fmtLine"></em></span>
+    <div class="turn" id="turn"></div>
+    <div class="tools">
+      <button class="btn" id="undo">Undo last</button>
+      <button class="btn" id="reset">Start over</button>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+  <section class="mark">
+    <h2>Someone just got drafted?</h2>
+    <p>Type any part of their name. You don't need to know their position.</p>
+    <div class="box">
+      <input id="q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Start typing a name...">
+      <div class="res" id="res" hidden></div>
+    </div>
+    <div class="hint">Tap <b>Taken</b> when another team drafts someone.
+      Tap <b>We got him</b> when the pick is ours.</div>
+  </section>
+
+  <div class="grid">
+    <div>
+      <div class="card take" id="takeCard"></div>
+      <div class="card"><h2>Best available by position</h2>
+        <div class="cols" id="cols" style="padding:10px"></div></div>
+    </div>
+    <aside>
+      <div class="card" id="rosterCard"></div>
+      <div class="card"><h2>Our draft rules</h2><div class="in" id="rules"></div></div>
+      <div class="card"><h2>Heads up</h2><div class="in" id="alerts"></div></div>
+    </aside>
+  </div>
+</div>
+<div class="foot" id="foot"></div>
+
+<script src="../payload.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

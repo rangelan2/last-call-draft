@@ -1,0 +1,570 @@
+/* GSB High Stakes draft board.
+ *
+ * Same value engine as the other boards, with this league's rules baked in and
+ * Anthony's draft policy encoded as hard constraints on what gets recommended.
+ * Built to be run by someone who does not know which position a player plays.
+ */
+(function () {
+"use strict";
+
+var P = window.PAYLOAD;
+var ORDER = ["QB", "RB", "WR", "TE", "K", "DEF"];
+var FLEXP = {FLEX:["RB","WR","TE"], SUPER_FLEX:["QB","RB","WR","TE"]};
+var KEY = "gsb.highstakes.v1";
+var LONG = {QB:"quarterback", RB:"running back", WR:"receiver", TE:"tight end",
+            K:"kicker", DEF:"defense"};
+
+var CONFIG = {
+  name: "GSB High Stakes",
+  teams: 12, slot: 3, rounds: 16, budget: 200, fmt: "HALF",
+  label: "12 team, half PPR, pick 3",
+  roster: ["QB","RB","RB","WR","WR","TE","FLEX","K","DEF",
+           "BN","BN","BN","BN","BN","BN","BN"],
+  irSlots: 2,
+  scoring: {pass_yd:0.04, pass_td:4, pass_int:-2, pass_2pt:2,
+            rush_yd:0.1, rush_td:6, rush_2pt:2,
+            rec:0.5, rec_yd:0.1, rec_td:6, rec_2pt:2, fum_lost:-2}
+};
+
+// Anthony's policy. These are constraints, not suggestions: a player who fails
+// one is never recommended, however good the numbers look.
+var RULES = {
+  eliteTE: ["Brock Bowers", "Trey McBride", "Colston Loveland", "Tyler Warren"],
+  eliteQB: ["Josh Allen", "Lamar Jackson", "Drake Maye"],
+  qbHoldUntilRound: 8,   // no quarterback before here unless an elite one falls
+  eliteFallBy: 12,       // "way below ADP" means this many picks past it
+  teStreamRound: 12,     // a non-elite tight end is a last-rounds commodity
+  maxQB: 2, maxTE: 1,    // maxTE lifts to 2 only when both are elite
+  // Players Anthony knows are not playing soon. The data cannot see this: Sleeper
+  // still lists both as merely Questionable.
+  alsoOut: ["Isiah Pacheco", "Josh Jacobs"]
+};
+
+var draft = null, board = null, sel = 0, results = [];
+
+/* ---------- state ---------- */
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify({
+    d: Array.from(draft.drafted), m: Array.from(draft.mine), o: draft.order
+  })); } catch (e) {}
+}
+function restore() {
+  var d = {d:[], m:[], o:[]};
+  try { var raw = localStorage.getItem(KEY); if (raw) d = JSON.parse(raw); } catch (e) {}
+  draft = {drafted: new Set(d.d || []), mine: new Set(d.m || []), order: d.o || []};
+}
+
+/* ---------- engine ---------- */
+function scoreOf(stats, scoring, pos) {
+  var pts = 0;
+  for (var k in stats) { var w = scoring[k]; if (w) pts += stats[k] * w; }
+  var b = scoring["bonus_rec_" + pos.toLowerCase()];
+  if (b && stats.rec) pts += stats.rec * b;
+  return pts;
+}
+function parseRoster(rp) {
+  var ded = {}, flex = [];
+  rp.forEach(function (s) {
+    if (s === "BN" || s === "IR") return;
+    if (FLEXP[s]) flex.push(s); else ded[s] = (ded[s] || 0) + 1;
+  });
+  return {ded: ded, flex: flex};
+}
+function replacement(players, teams, ded, flex) {
+  var byPos = {};
+  players.forEach(function (p) { (byPos[p.pos] = byPos[p.pos] || []).push(p); });
+  for (var k in byPos) byPos[k].sort(function (a, b) { return b.pts - a.pts; });
+  var counts = {};
+  for (var pos in ded) counts[pos] = teams * ded[pos];
+  flex.forEach(function (slot) {
+    for (var i = 0; i < teams; i++) {
+      var best = null, bp = null;
+      FLEXP[slot].forEach(function (ps) {
+        var pool = byPos[ps] || [], at = counts[ps] || 0;
+        if (at < pool.length && (!best || pool[at].pts > best.pts)) { best = pool[at]; bp = ps; }
+      });
+      if (bp) counts[bp] = (counts[bp] || 0) + 1;
+    }
+  });
+  var repl = {};
+  for (var pz in byPos) {
+    var pool = byPos[pz], idx = counts[pz] || 0;
+    var band = pool.slice(Math.max(0, idx - 1), Math.min(pool.length, idx + 2));
+    if (!band.length) band = [pool[pool.length - 1]];
+    repl[pz] = band.reduce(function (t, x) { return t + x.pts; }, 0) / band.length;
+  }
+  return {repl: repl, counts: counts};
+}
+function tierize(pool, depth, field, out, maxTiers) {
+  maxTiers = maxTiers || 10;
+  if (!pool.length) return;
+  pool.sort(function (a, b) { return b[field] - a[field]; });
+  var core = pool.slice(0, Math.max(depth, 2)), rest = pool.slice(core.length), gaps = [];
+  for (var i = 0; i < core.length - 1; i++) gaps.push(core[i][field] - core[i + 1][field]);
+  var wall = Infinity;
+  if (gaps.length) {
+    var k = Math.min(maxTiers - 1, gaps.length);
+    wall = k > 0 ? gaps.slice().sort(function (a, b) { return b - a; })[k - 1] : Infinity;
+  }
+  var t = 1;
+  core[0][out] = 1;
+  for (var j = 0; j < gaps.length; j++) {
+    if (gaps[j] >= wall && t < maxTiers) t++;
+    core[j + 1][out] = t;
+  }
+  rest.forEach(function (p) { p[out] = Math.min(t + 1, maxTiers + 1); });
+}
+function build() {
+  var pr = parseRoster(CONFIG.roster), active = {};
+  for (var d in pr.ded) if (ORDER.indexOf(d) >= 0) active[d] = 1;
+  pr.flex.forEach(function (s) { FLEXP[s].forEach(function (p) { active[p] = 1; }); });
+  var fmt = CONFIG.fmt, players = [];
+
+  P.pl.forEach(function (raw) {
+    if (!active[raw.p]) return;
+    var pos = raw.p, pts;
+    if (pos === "K" || pos === "DEF") {
+      pts = raw.s.pts_std;
+      if (pts == null) return;
+    } else {
+      var a = scoreOf(raw.s, CONFIG.scoring, pos);
+      var b = Object.keys(raw.e).length ? scoreOf(raw.e, CONFIG.scoring, pos) : null;
+      pts = b == null ? a : (a + b) / 2;
+    }
+    var e = raw.r[fmt] || null;
+    var forcedOut = RULES.alsoOut.indexOf(raw.n) >= 0;
+    players.push({
+      name: raw.n, pos: pos, team: raw.t, bye: raw.b, sid: raw.id,
+      pts: Math.round(pts * 10) / 10,
+      adp: raw.a[fmt] != null ? raw.a[fmt] : raw.a.PPR,
+      ecr: e ? e[0] : null, ecrBest: e ? e[1] : null, ecrWorst: e ? e[2] : null,
+      ecrTierRaw: e ? e[4] : null,
+      rookie: raw.k, inj: raw.i,
+      avail: forcedOut ? "out" : (raw.av || "ok"),
+      irOk: raw.ir === 1 || forcedOut,
+      eliteTE: RULES.eliteTE.indexOf(raw.n) >= 0,
+      eliteQB: RULES.eliteQB.indexOf(raw.n) >= 0,
+      late: pos === "K" || pos === "DEF"
+    });
+  });
+
+  var rl = replacement(players, CONFIG.teams, pr.ded, pr.flex);
+  players.forEach(function (p) { p.vor = Math.round((p.pts - (rl.repl[p.pos] || 0)) * 10) / 10; });
+
+  var ranked = players.filter(function (p) { return p.ecr != null; });
+  ranked.slice().sort(function (a, b) { return (a.late - b.late) || (a.ecr - b.ecr); })
+        .forEach(function (p, i) { p.ecrRank = i + 1; });
+  players.forEach(function (p) { if (p.ecr == null) p.ecrRank = ranked.length + 1; });
+
+  // Consensus translated into this league's points, then blended with projection.
+  var curve = {};
+  players.forEach(function (p) { (curve[p.pos] = curve[p.pos] || []).push(p.vor); });
+  for (var cp in curve) curve[cp].sort(function (a, b) { return b - a; });
+  Object.keys(active).forEach(function (pos) {
+    var pool = players.filter(function (p) { return p.pos === pos; });
+    var rk = pool.filter(function (p) { return p.ecr != null; })
+                 .sort(function (a, b) { return a.ecr - b.ecr; });
+    rk.forEach(function (p, i) { p.ecrPos = i + 1; });
+    var cv = curve[pos], fl = Math.min(rk.length, cv.length - 1);
+    pool.forEach(function (p) {
+      var idx = p.ecrPos ? Math.min(p.ecrPos - 1, cv.length - 1) : fl;
+      p.blendVor = 0.6 * cv[idx] + 0.4 * p.vor;
+    });
+  });
+
+  players.sort(function (a, b) { return (a.late - b.late) || (b.blendVor - a.blendVor); });
+  players.forEach(function (p, i) { p.rank = i + 1; });
+  Object.keys(active).forEach(function (pos) {
+    var pool = players.filter(function (p) { return p.pos === pos; });
+    var st = rl.counts[pos] || CONFIG.teams;
+    var depth = (pos === "K" || pos === "DEF") ? CONFIG.teams + 8
+              : Math.max(Math.round(st * 2.2) + CONFIG.teams, 20);
+    tierize(pool, depth, "blendVor", "tier");
+  });
+  var byPos = {};
+  players.forEach(function (p) { (byPos[p.pos] = byPos[p.pos] || []).push(p); });
+  for (var q in byPos) byPos[q].forEach(function (p, i) { p.posRank = i + 1; });
+
+  return {players: players, repl: rl.repl, positions: ORDER.filter(function (p) { return active[p]; })};
+}
+
+/* ---------- helpers ---------- */
+function myPicks() {
+  var out = [];
+  for (var r = 1; r <= CONFIG.rounds; r++) {
+    var back = r % 2 === 0;
+    out.push((r - 1) * CONFIG.teams + (back ? CONFIG.teams - CONFIG.slot + 1 : CONFIG.slot));
+  }
+  return out;
+}
+var MY = myPicks();
+function pickNow() { return draft.order.length + 1; }
+function roundNow() { return Math.floor(draft.order.length / CONFIG.teams) + 1; }
+function open_() { return board.players.filter(function (p) { return !draft.drafted.has(p.sid); }); }
+function mine_() { return board.players.filter(function (p) { return draft.mine.has(p.sid); }); }
+function tv(t) { return "var(--t" + Math.min(t || 11, 11) + ")"; }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); }
+
+function lineup() {
+  var mine = mine_().slice().sort(function (a, b) { return a.rank - b.rank; });
+  var need = {};
+  CONFIG.roster.forEach(function (s) { if (s !== "BN") need[s] = (need[s] || 0) + 1; });
+  var byPos = {};
+  mine.forEach(function (p) { (byPos[p.pos] = byPos[p.pos] || []).push(p); });
+  var used = {}, filled = [];
+  Object.keys(need).forEach(function (sl) {
+    if (FLEXP[sl]) return;
+    for (var i = 0; i < need[sl]; i++) {
+      var pool = byPos[sl] || [], at = used[sl] || 0;
+      if (pool[at]) { used[sl] = at + 1; filled.push({sl: sl, p: pool[at]}); }
+      else filled.push({sl: sl, p: null});
+    }
+  });
+  Object.keys(need).forEach(function (sl) {
+    if (!FLEXP[sl]) return;
+    for (var i = 0; i < need[sl]; i++) {
+      var best = null, bp = null;
+      FLEXP[sl].forEach(function (ps) {
+        var pool = byPos[ps] || [], at = used[ps] || 0;
+        if (pool[at] && (!best || pool[at].rank < best.rank)) { best = pool[at]; bp = ps; }
+      });
+      if (best) { used[bp] = (used[bp] || 0) + 1; filled.push({sl: sl, p: best}); }
+      else filled.push({sl: sl, p: null});
+    }
+  });
+  var starters = {};
+  filled.forEach(function (f) { if (f.p) starters[f.p.sid] = 1; });
+  var counts = {};
+  mine.forEach(function (p) { counts[p.pos] = (counts[p.pos] || 0) + 1; });
+  return {mine: mine, filled: filled, counts: counts,
+          bench: mine.filter(function (p) { return !starters[p.sid]; })};
+}
+
+/* ---------- the policy ---------- */
+// Returns null if the player is draftable right now, or a string saying why not.
+function blockedReason(p, lu) {
+  var round = roundNow(), have = lu.counts, last = CONFIG.rounds;
+  var myEliteTE = lu.mine.filter(function (x) { return x.pos === "TE" && x.eliteTE; }).length;
+
+  if (p.pos === "QB") {
+    if ((have.QB || 0) >= RULES.maxQB) return "we already have two quarterbacks";
+    if ((have.QB || 0) >= 1 && round < last - 3) return "one quarterback is enough for now";
+    if ((have.QB || 0) === 0 && round < RULES.qbHoldUntilRound) {
+      var fell = p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy;
+      if (!(p.eliteQB && fell)) return "too early for a quarterback";
+    }
+  }
+  if (p.pos === "TE") {
+    if ((have.TE || 0) === 0) {
+      if (!p.eliteTE && round < RULES.teStreamRound)
+        return "not an elite tight end, and those are a late-round commodity";
+    } else if ((have.TE || 0) === 1) {
+      if (!(p.eliteTE && myEliteTE >= 1)) return "we already have our tight end";
+    } else return "we already have two tight ends";
+  }
+  if (p.late && round < last - 1) return "kickers and defenses come last";
+  if (p.avail === "out" && round < last - 2) return "he is not playing any time soon";
+  return null;
+}
+
+function advise() {
+  var lu = lineup(), all = open_(), round = roundNow(), last = CONFIG.rounds;
+
+  // At the very end, fill the two mandatory slots nobody wants to spend on early.
+  var missingLate = [];
+  lu.filled.forEach(function (f) {
+    if (!f.p && (f.sl === "K" || f.sl === "DEF")) missingLate.push(f.sl);
+  });
+  if (round >= last - 1 && missingLate.length) {
+    return missingLate.map(function (sl) {
+      var best = all.filter(function (p) { return p.pos === sl; })[0];
+      return best ? {p: best, why: "The draft is almost over and we still need a "
+        + LONG[sl] + ". Any of the top few is fine."} : null;
+    }).filter(Boolean);
+  }
+
+  var gap = {};
+  lu.filled.forEach(function (f) {
+    if (f.p || f.sl === "K" || f.sl === "DEF") return;
+    (FLEXP[f.sl] || [f.sl]).forEach(function (ps) { gap[ps] = (gap[ps] || 0) + 1; });
+  });
+
+  var ok = all.filter(function (p) { return !blockedReason(p, lu); });
+  if (!ok.length) return [];
+  var unit = Math.max(Math.abs(ok[0].blendVor), 1);
+
+  var scored = ok.slice(0, 50).map(function (p) {
+    var score = p.blendVor, best = ok[0] === p;
+    var samePos = ok.filter(function (x) { return x.pos === p.pos; });
+    var bestAtPos = samePos[0] === p;
+    var mates = samePos.filter(function (x) { return x.tier === p.tier; });
+    if (gap[p.pos]) score += unit * 0.14;
+    if (mates.length <= 2 && mates[0] === p) score += unit * 0.10;
+    if (p.eliteTE && (lineup().counts.TE || 0) === 0) score += unit * 0.08;
+    if (p.eliteQB && p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy) score += unit * 0.30;
+
+    var lead = best ? "The best player left, at any position"
+             : bestAtPos ? "The best " + LONG[p.pos] + " left"
+             : "Still one of the best available";
+    if (gap[p.pos]) lead += ", and we still need a " + LONG[p.pos];
+    var tail = "";
+    if (p.eliteQB && p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy)
+      tail = " He has fallen " + Math.round(pickNow() - p.adp) + " picks past where he usually goes, "
+           + "which is the only reason to take a quarterback this early.";
+    else if (p.eliteTE && (lineup().counts.TE || 0) === 0)
+      tail = " One of the four tight ends worth a real pick.";
+    else if (mates.length === 1) tail = " He is the last one at this level before a real drop.";
+    else if (mates.length === 2) tail = " Only two are left at this level.";
+    if (p.avail === "watch") tail += " Listed " + String(p.inj).toLowerCase() + ".";
+    return {p: p, score: score, why: lead + "." + tail};
+  });
+  scored.sort(function (a, b) { return b.score - a.score; });
+  return scored.slice(0, 3);
+}
+
+// Late-round stashes: two IR slots mean a hurt player with real upside is free value.
+function stashes() {
+  var lu = lineup();
+  if (roundNow() < CONFIG.rounds - 3) return [];
+  var used = lu.mine.filter(function (p) { return p.irOk; }).length;
+  if (used >= CONFIG.irSlots) return [];
+  return open_().filter(function (p) { return p.irOk && !p.late; })
+                .sort(function (a, b) { return a.rank - b.rank; }).slice(0, 3);
+}
+
+/* ---------- render ---------- */
+function flags(p) {
+  var s = "";
+  if (p.avail === "out") s += '<span class="flag out">OUT A WHILE</span>';
+  else if (p.avail === "watch") s += '<span class="flag watch">' + esc(String(p.inj).toUpperCase().slice(0,4)) + '</span>';
+  if (p.irOk) s += '<span class="flag ir">IR STASH</span>';
+  if (p.eliteTE || p.eliteQB) s += '<span class="flag elite">ELITE</span>';
+  if (p.rookie) s += '<span class="flag rk">ROOKIE</span>';
+  return s;
+}
+
+function renderTurn() {
+  var n = pickNow(), up = MY.filter(function (x) { return x >= n; });
+  var next = up[0], away = next != null ? next - n : null;
+  var el = document.getElementById("turn");
+  el.className = "turn" + (away === 0 ? " up" : "");
+  el.innerHTML = away == null ? '<span class="pill">Draft done</span>'
+    : away === 0 ? '<span class="pill">YOUR PICK NOW</span>'
+    : '<span class="pill">Pick ' + next + '</span><span><b>' + away
+      + '</b> pick' + (away === 1 ? "" : "s") + ' away</span>';
+  document.getElementById("fmtLine").textContent =
+    CONFIG.label + " · round " + Math.min(roundNow(), CONFIG.rounds) + " of " + CONFIG.rounds;
+}
+
+function renderTake() {
+  var recs = advise(), st = stashes();
+  var html = "<h2>Take one of these</h2>";
+  if (!recs.length) html += '<div class="in"><span class="muted">Nothing left to suggest.</span></div>';
+  recs.forEach(function (r, i) {
+    html += '<div class="pick ' + (i === 0 ? "top" : "alt") + '" data-sid="' + esc(r.p.sid) + '">'
+      + '<span class="pos ' + r.p.pos + '">' + (r.p.pos === "DEF" ? "DST" : r.p.pos) + "</span>"
+      + '<span><span class="nm">' + esc(r.p.name) + "</span>" + flags(r.p)
+      + '<div class="why">' + esc(r.p.team) + " · bye " + (r.p.bye || "?") + " — "
+      + esc(r.why) + "</div></span>"
+      + '<span class="go">We got him</span></div>';
+  });
+  if (st.length) {
+    html += '<div class="in" style="border-top:1px solid var(--line)">'
+      + '<div style="font-size:12px;color:var(--ink-2);line-height:1.5">'
+      + "<b>Injury stash idea.</b> We have two IR spots. "
+      + st.map(function (p) { return esc(p.name); }).join(", ")
+      + " are hurt now but worth a late flier.</div></div>";
+  }
+  document.getElementById("takeCard").innerHTML = html;
+}
+
+function renderRoster() {
+  var lu = lineup();
+  var html = "<h2>Our team · " + lu.mine.length + "</h2>";
+  lu.filled.forEach(function (f) {
+    html += '<div class="slot ' + (f.p ? "on" : "") + '"><i>'
+      + (f.sl === "DEF" ? "DST" : f.sl) + "</i>"
+      + (f.p ? "<b>" + esc(f.p.name) + "</b><em>" + esc(f.p.team) + " · bye " + (f.p.bye || "?") + "</em>"
+             : '<span class="mt">empty</span><em></em>') + "</div>";
+  });
+  if (lu.bench.length) {
+    html += '<div class="bench-h">Bench</div>';
+    lu.bench.forEach(function (p) {
+      html += '<div class="slot"><i>BN</i><b>' + esc(p.name) + "</b><em>"
+        + p.pos + " · bye " + (p.bye || "?") + "</em></div>";
+    });
+  }
+  document.getElementById("rosterCard").innerHTML = html;
+}
+
+function renderRules() {
+  var lu = lineup(), c = lu.counts, round = roundNow();
+  var myEliteTE = lu.mine.filter(function (p) { return p.pos === "TE" && p.eliteTE; }).length;
+  var r = [];
+  r.push({on: (c.QB || 0) >= 1, hit: (c.QB || 0) > RULES.maxQB, ic: "QB",
+    t: "<b>" + (c.QB || 0) + " of max 2.</b> No quarterback before round "
+       + RULES.qbHoldUntilRound + " unless Allen, Lamar or Maye falls "
+       + RULES.eliteFallBy + "+ picks."});
+  r.push({on: (c.TE || 0) >= 1, hit: (c.TE || 0) > (myEliteTE >= 2 ? 2 : RULES.maxTE), ic: "TE",
+    t: "<b>" + (c.TE || 0) + " rostered.</b> Only one unless we land two of Bowers, McBride, "
+       + "Loveland or Warren. Everyone else waits until round " + RULES.teStreamRound + "."});
+  r.push({on: (c.K || 0) + (c.DEF || 0) > 0, ic: "K/D",
+    t: "<b>Last two rounds only.</b> Kicker and defense are never worth an early pick."});
+  r.push({on: lu.mine.some(function (p) { return p.irOk; }), ic: "IR",
+    t: "<b>Two IR spots.</b> Hurt players with upside are worth a late flier."});
+  document.getElementById("rules").innerHTML = r.map(function (x) {
+    return '<div class="rule ' + (x.hit ? "hit" : x.on ? "on" : "") + '">'
+      + '<span class="ic">' + x.ic + "</span><span>" + x.t + "</span></div>"; }).join("");
+}
+
+function renderAlerts() {
+  var lu = lineup(), a = [], open = open_();
+  var hurt = lu.mine.filter(function (p) { return p.avail === "out"; });
+  if (hurt.length) a.push('<div class="rule hit"><span class="ic">!</span><span><b>'
+    + hurt.map(function (p) { return esc(p.name); }).join(", ")
+    + "</b> may not play for a while. Fine as a stash, not as a starter.</span></div>");
+  var byes = {};
+  lu.filled.forEach(function (f) { if (f.p && f.p.bye) byes[f.p.bye] = (byes[f.p.bye] || 0) + 1; });
+  Object.keys(byes).forEach(function (w) {
+    if (byes[w] >= 3) a.push('<div class="rule hit"><span class="ic">BYE</span><span><b>'
+      + byes[w] + "</b> starters are off in week " + w + ".</span></div>");
+  });
+  board.positions.forEach(function (pos) {
+    var pool = open.filter(function (p) { return p.pos === pos; });
+    if (!pool.length || pos === "K" || pos === "DEF") return;
+    var left = pool.filter(function (p) { return p.tier === pool[0].tier; }).length;
+    if (left <= 2) a.push('<div class="rule"><span class="ic">' + pos + "</span><span>Only <b>"
+      + left + "</b> left at this level. Best: " + esc(pool[0].name) + ".</span></div>");
+  });
+  document.getElementById("alerts").innerHTML = a.join("")
+    || '<span class="muted">Nothing to flag right now.</span>';
+}
+
+function renderCols() {
+  var open = open_(), html = "";
+  board.positions.forEach(function (pos) {
+    var all = board.players.filter(function (p) { return p.pos === pos; }).slice(0, 60);
+    var left = all.filter(function (p) { return !draft.drafted.has(p.sid); }).length;
+    var rows = "", lastTier = null;
+    all.forEach(function (p) {
+      if (draft.drafted.has(p.sid)) return;
+      if (p.tier !== lastTier) {
+        rows += '<div class="tsep"><span>Tier ' + p.tier + '</span><i class="ln"></i></div>';
+        lastTier = p.tier;
+      }
+      rows += '<div class="pr' + (draft.mine.has(p.sid) ? " mine" : "") + '" data-sid="'
+        + esc(p.sid) + '"><i class="band" style="background:' + tv(p.tier) + '"></i>'
+        + '<span class="n">' + esc(p.name)
+        + (p.avail === "out" ? ' <span class="flag out">OUT</span>' : "")
+        + (p.eliteTE || p.eliteQB ? ' <span class="flag elite">E</span>' : "") + "</span>"
+        + '<span class="tm">' + esc(p.team) + "·" + (p.bye || "?") + "</span>"
+        + '<span class="v">' + Math.round(p.blendVor) + "</span></div>";
+    });
+    html += '<section class="col"><div class="col-h"><span class="t">'
+      + (pos === "DEF" ? "DST" : pos) + '</span><span class="n">' + left + " left</span></div>"
+      + '<div class="rows">' + rows + "</div></section>";
+  });
+  document.getElementById("cols").innerHTML = html;
+}
+
+function render() {
+  renderTurn(); renderTake(); renderRoster(); renderRules(); renderAlerts(); renderCols();
+  document.getElementById("foot").innerHTML =
+    "<b>How this ranks.</b> Two projection sources re-scored for half PPR and averaged, "
+    + "measured against the replacement player at each position for a 12 team lineup, then "
+    + "blended 60/40 with the consensus of " + ((P.em[CONFIG.fmt] || {}).x || "~100")
+    + " analysts. <b>Our rules are enforced, not suggested:</b> a player who breaks one is "
+    + "never recommended, whatever his numbers say. Kickers and defenses use default scoring, "
+    + "which no source projects properly. Data pulled " + esc(P.gen) + ". "
+    + "Everything is saved on this device only.";
+}
+
+/* ---------- marking ---------- */
+function mark(sid, isOurs) {
+  if (draft.drafted.has(sid)) {
+    draft.drafted.delete(sid); draft.mine.delete(sid);
+    draft.order = draft.order.filter(function (x) { return x !== sid; });
+  } else {
+    draft.drafted.add(sid); draft.order.push(sid);
+    if (isOurs) draft.mine.add(sid);
+  }
+  save(); render();
+}
+
+var qEl = document.getElementById("q"), resEl = document.getElementById("res");
+function search() {
+  var t = qEl.value.trim().toLowerCase();
+  if (t.length < 2) { resEl.hidden = true; results = []; return; }
+  var open = open_();
+  var starts = [], contains = [];
+  open.forEach(function (p) {
+    var n = p.name.toLowerCase();
+    if (n.indexOf(t) === 0 || n.split(" ").some(function (w) { return w.indexOf(t) === 0; }))
+      starts.push(p);
+    else if (n.indexOf(t) >= 0) contains.push(p);
+  });
+  results = starts.concat(contains).slice(0, 7);
+  sel = 0;
+  if (!results.length) {
+    resEl.innerHTML = '<div class="none">No one by that name is still available. '
+      + "They may already be taken.</div>";
+    resEl.hidden = false; return;
+  }
+  resEl.innerHTML = results.map(function (p, i) {
+    return '<div class="row' + (i === sel ? " sel" : "") + '" data-i="' + i + '">'
+      + '<span class="pos ' + p.pos + '">' + (p.pos === "DEF" ? "DST" : p.pos) + "</span>"
+      + '<span><span class="nm">' + esc(p.name) + "</span>" + flags(p)
+      + '<div class="sub">' + LONG[p.pos] + " · " + esc(p.team) + " · bye " + (p.bye || "?")
+      + "</div></span>"
+      + '<span class="take" data-act="taken" data-i="' + i + '">Taken</span>'
+      + '<span class="take" data-act="ours" data-i="' + i + '">We got him</span></div>';
+  }).join("");
+  resEl.hidden = false;
+}
+function choose(i, ours) {
+  var p = results[i];
+  if (!p) return;
+  mark(p.sid, ours);
+  qEl.value = ""; resEl.hidden = true; results = []; qEl.focus();
+}
+qEl.addEventListener("input", search);
+qEl.addEventListener("keydown", function (e) {
+  if (resEl.hidden) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, results.length - 1); paint(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); }
+  else if (e.key === "Enter") { e.preventDefault(); choose(sel, e.metaKey || e.ctrlKey); }
+  else if (e.key === "Escape") { resEl.hidden = true; }
+});
+function paint() {
+  Array.prototype.forEach.call(resEl.children, function (c, i) {
+    c.classList.toggle("sel", i === sel); });
+}
+resEl.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-act]");
+  if (b) { choose(+b.dataset.i, b.dataset.act === "ours"); return; }
+  var row = e.target.closest(".row");
+  if (row) choose(+row.dataset.i, false);
+});
+document.addEventListener("click", function (e) {
+  if (!e.target.closest(".mark")) resEl.hidden = true;
+  var pick = e.target.closest(".pick");
+  if (pick) { mark(pick.dataset.sid, true); return; }
+  var pr = e.target.closest(".pr");
+  if (pr) { mark(pr.dataset.sid, e.metaKey || e.ctrlKey || e.shiftKey); }
+});
+document.getElementById("undo").addEventListener("click", function () {
+  var last = draft.order[draft.order.length - 1];
+  if (last) mark(last, false);
+});
+document.getElementById("reset").addEventListener("click", function () {
+  if (!confirm("Clear every pick and start the draft over?")) return;
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  restore(); render();
+});
+
+restore();
+board = build();
+render();
+qEl.focus();
+})();
