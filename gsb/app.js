@@ -665,14 +665,21 @@ function renderTurn() {
 // than restating the rule. For a pick that has not arrived yet it names the best man
 // likely to still be there, and says so, rather than promising someone who will be
 // gone.
-function likelyAt(pick, ok) {
+// Everyone worth naming for a pick 19 away is already gone by then: on a fresh board
+// every one of the top fourteen backs and receivers has a 7% or worse chance of
+// reaching pick 22. So for a future pick this returns the best men who should
+// actually survive, and the copy has to say that rather than call them "the best".
+function likelyAt(pick, ok, n) {
   var open = open_(), cands = open.filter(ok);
-  if (!cands.length) return null;
-  if (pick <= pickNow()) return cands[0];
+  if (!cands.length) return [];
+  if (pick <= pickNow()) return cands.slice(0, n || 1);
   var km = keepMap(open, pickNow(), pick);
-  if (!km) return cands[0];
+  if (!km) return cands.slice(0, n || 1);
   var survive = cands.filter(function (p) { return km[p.sid] == null || km[p.sid] >= 0.5; });
-  return survive[0] || cands[0];
+  return (survive.length ? survive : cands).slice(0, n || 1);
+}
+function nameList(ps) {
+  return ps.map(nm).join(ps.length === 2 ? " or " : ", ");
 }
 function nm(p) { return "<b>" + esc(p.name) + "</b>"; }
 
@@ -702,10 +709,14 @@ function renderPlan() {
       if (c) { pick1 = c; break; }
       gone.push(SCRIPT.round1[k].split(" ").slice(-1)[0]);
     }
-    s1 = pick1
-      ? "Take " + nm(pick1) + "."
-        + (gone.length ? " " + gone.join(" and ") + " already gone." : "") + soon(0)
-      : "All three are gone. Best player available.";
+    var liveList = SCRIPT.round1.map(up).filter(Boolean);
+    if (!pick1) s1 = "All three are gone. Best player available.";
+    else if (MY[0] <= pickNow())
+      s1 = "Take " + nm(pick1) + "."
+         + (gone.length ? " " + gone.join(" and ") + " already gone." : "");
+    else
+      s1 = "Take " + nameList(liveList) + " &mdash; in that order, whoever is still there."
+         + (gone.length ? " " + gone.join(" and ") + " already gone." : "");
   }
 
   // ---- round 2 -----------------------------------------------------------
@@ -716,14 +727,17 @@ function renderPlan() {
   } else {
     var wantRB = tookChase || (mine[0] && mine[0].pos === "WR");
     var lu = lineup();
-    var cand = likelyAt(MY[1], function (p) {
+    var what = wantRB ? "running back" : "back or receiver";
+    var cands = likelyAt(MY[1], function (p) {
       if (p.pos === "TE" || p.late) return false;
       if (blockedReason(p, lu)) return false;
       return wantRB ? p.pos === "RB" : (p.pos === "RB" || p.pos === "WR");
-    });
-    var lead = cand
-      ? "Take " + nm(cand) + (wantRB ? ", the best running back." : ", the best back or receiver.")
-      : (wantRB ? "Best running back available." : "Best back or receiver available.");
+    }, MY[1] <= pickNow() ? 1 : 2);
+    var lead = !cands.length
+      ? "Best " + what + " available."
+      : MY[1] <= pickNow()
+        ? "Take " + nm(cands[0]) + ", the best " + what + " available."
+        : "Best " + what + " available. Should still be there: " + nameList(cands) + ".";
     if (bow && mcb) lead += " <b>No tight end here</b> &mdash; Bowers and McBride are both "
       + "still on the board, so one should reach round 3.";
     else if (mcb) lead += " <b>No tight end here</b> &mdash; only McBride is left, so wait "
@@ -738,11 +752,11 @@ function renderPlan() {
   else if (mine.some(function (p) { return p.pos === "TE"; }))
     s3 = "You already have your tight end. Best player available.";
   else {
-    var te = likelyAt(MY[2], function (p) {
-      return p.name === SCRIPT.teBest || p.name === SCRIPT.teNext; });
-    if (te) s3 = "Take " + nm(te) + "."
-      + (te.name === SCRIPT.teBest && mcb ? " Bowers ahead of McBride when both are there." : "")
-      + soon(2);
+    var tes = likelyAt(MY[2], function (p) {
+      return p.name === SCRIPT.teBest || p.name === SCRIPT.teNext; }, 1);
+    var te = tes[0];
+    if (te) s3 = (MY[2] <= pickNow() ? "Take " : "Should be here: ") + nm(te) + "."
+      + (te.name === SCRIPT.teBest && mcb ? " Bowers ahead of McBride when both are there." : "");
     else s3 = "Bowers and McBride are both gone. Best player available, and the board "
       + "takes over from here.";
   }
@@ -935,7 +949,8 @@ function renderCols() {
         + '<span class="v">' + Math.round(p.blendVor) + "</span></div>";
     });
     html += '<section class="col"><div class="col-h"><span class="t">'
-      + (pos === "DEF" ? "DST" : pos) + '</span><span class="n">' + left + " left</span></div>"
+      + (pos === "DEF" ? "DST" : pos) + '</span><span class="n">' + left + " left</span>"
+      + '<span class="v">pts over free</span></div>"'.slice(0, -1)
       + '<div class="rows">' + rows + "</div></section>";
   });
   document.getElementById("cols").innerHTML = html;

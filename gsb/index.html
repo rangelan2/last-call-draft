@@ -195,12 +195,16 @@ input{font:inherit;color:inherit}
   text-transform:uppercase;color:var(--ink-3);padding:6px 14px 4px;background:var(--surface-2);
   border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 
+.legend{padding:9px 14px;border-bottom:1px solid var(--line);background:var(--surface-2);
+  font-size:12px;line-height:1.5;color:var(--ink-2)}
 .cols{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;
   box-shadow:var(--shadow)}
 .col-h{display:flex;align-items:center;gap:8px;padding:8px 11px;border-bottom:1px solid var(--line);
   background:var(--surface-2)}
 .col-h .t{font-family:var(--disp);font-size:12.5px;font-weight:700}
+.col-h .v{font-family:var(--disp);font-size:8.5px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-3)}
 .col-h .n{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
 .rows{max-height:min(56vh,540px);overflow-y:auto}
 .pr{display:grid;grid-template-columns:3px 1fr 44px 34px;gap:6px;align-items:center;height:28px;
@@ -256,6 +260,9 @@ input{font:inherit;color:inherit}
       <div class="card plan" id="planCard" hidden></div>
       <div class="card take" id="takeCard"></div>
       <div class="card"><h2>Best available by position</h2>
+        <div class="legend">The number beside each name is how many more fantasy points
+        he should score this season than a player you could pick up for free. Bigger is
+        better. It is only meant for comparing two names, not as a prediction.</div>
         <div class="cols" id="cols" style="padding:10px"></div></div>
     </div>
     <aside>
