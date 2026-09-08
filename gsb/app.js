@@ -377,7 +377,11 @@ function renderTurn() {
 
 function renderTake() {
   var recs = advise(), st = stashes();
-  var html = "<h2>Take one of these</h2>";
+  var n = pickNow(), ours = MY.indexOf(n) >= 0;
+  var html = "<h2>" + (ours ? "Your pick &mdash; take one of these"
+                             : "Best on the board right now") + "</h2>";
+  if (!ours) html += '<div class="notyet">Not your pick yet. If another team takes '
+    + "one of these, tap <b>Someone took him</b> so the board stays right.</div>";
   if (!recs.length) html += '<div class="in"><span class="muted">Nothing left to suggest.</span></div>';
   recs.forEach(function (r, i) {
     html += '<div class="pick ' + (i === 0 ? "top" : "alt") + '" data-sid="' + esc(r.p.sid) + '">'
@@ -385,7 +389,11 @@ function renderTake() {
       + '<span><span class="nm">' + esc(r.p.name) + "</span>" + flags(r.p)
       + '<div class="why">' + esc(r.p.team) + " · bye " + (r.p.bye || "?") + " — "
       + esc(r.why) + "</div></span>"
-      + '<span class="go">We got him</span></div>';
+      + '<span class="acts">'
+      + '<button class="mini' + (ours ? "" : " lead") + '" data-act="taken" data-sid="'
+      + esc(r.p.sid) + '">Someone took him</button>'
+      + '<button class="mini' + (ours ? " lead" : "") + '" data-act="ours" data-sid="'
+      + esc(r.p.sid) + '">We got him</button></span></div>';
   });
   if (st.length) {
     html += '<div class="in" style="border-top:1px solid var(--line)">'
@@ -566,8 +574,9 @@ resEl.addEventListener("click", function (e) {
 });
 document.addEventListener("click", function (e) {
   if (!e.target.closest(".mark")) resEl.hidden = true;
-  var pick = e.target.closest(".pick");
-  if (pick) { mark(pick.dataset.sid, true); return; }
+  var act = e.target.closest("[data-act]");
+  if (act && act.closest(".pick")) { mark(act.dataset.sid, act.dataset.act === "ours"); return; }
+  if (e.target.closest(".pick")) return;   // the row is not a button; use one
   var pr = e.target.closest(".pr");
   if (pr) { mark(pr.dataset.sid, e.metaKey || e.ctrlKey || e.shiftKey); }
 });
