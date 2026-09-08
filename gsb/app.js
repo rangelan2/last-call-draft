@@ -40,18 +40,19 @@ var RULES = {
   alsoOut: ["Isiah Pacheco", "Josh Jacobs"]
 };
 
-var draft = null, board = null, sel = 0, results = [];
+var draft = null, board = null, sel = 0, results = [], pickOffset = 0;
 
 /* ---------- state ---------- */
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify({
-    d: Array.from(draft.drafted), m: Array.from(draft.mine), o: draft.order
+    d: Array.from(draft.drafted), m: Array.from(draft.mine), o: draft.order, off: pickOffset
   })); } catch (e) {}
 }
 function restore() {
   var d = {d:[], m:[], o:[]};
   try { var raw = localStorage.getItem(KEY); if (raw) d = JSON.parse(raw); } catch (e) {}
   draft = {drafted: new Set(d.d || []), mine: new Set(d.m || []), order: d.o || []};
+  pickOffset = d.off || 0;
 }
 
 /* ---------- engine ---------- */
@@ -208,6 +209,40 @@ function build() {
   return {players: players, repl: rl.repl, positions: ORDER.filter(function (p) { return active[p]; })};
 }
 
+/* ---------- market model ---------- */
+// ESPN publishes an average draft position but no dispersion, so the spread is
+// borrowed from Fantasy Football Calculator, which measures the standard deviation
+// of actual draft slots across 1,837 real 12-team half-PPR drafts. Across ADP bands
+// that spread is close to linear: sd is about 10 to 12 percent of ADP. The fit below
+// is regressed off those bands.
+function adpSpread(adp) { return 0.79 + 0.105 * adp; }
+// Abramowitz-Stegun 7.1.26, good to ~1e-7.
+function erf(x) {
+  var s = x < 0 ? -1 : 1; x = Math.abs(x);
+  var t = 1 / (1 + 0.3275911 * x);
+  return s * (1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
+    - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x));
+}
+// Chance a player is still on the board at `pick`, modelling his draft slot as
+// normal around ESPN ADP. Conditioned on him being available now, so the estimate
+// tightens as the draft runs rather than drifting.
+function survives(p, pick, from) {
+  if (!p.adp) return null;
+  var tail = function (k) { return 1 - 0.5 * (1 + erf((k - p.adp) / (adpSpread(p.adp) * Math.SQRT2))); };
+  var at = tail(pick);
+  if (from == null || from <= 1) return at;
+  var now = tail(from);
+  return now > 0.02 ? Math.min(at / now, 1) : at;
+}
+// How far our board disagrees with the room, in picks. Positive means we rank him
+// higher than ESPN drafts him, so he should reach us later than his value deserves.
+// Kickers and defenses are excluded: we park them near rank 380 on purpose, which
+// would otherwise read as a 300-pick "bargain".
+function edgeVsMarket(p) {
+  if (!p.adp || p.late) return null;
+  return p.adp - p.rank;
+}
+
 /* ---------- helpers ---------- */
 function myPicks() {
   var out = [];
@@ -218,7 +253,9 @@ function myPicks() {
   return out;
 }
 var MY = myPicks();
-function pickNow() { return draft.order.length + 1; }
+// Every round gate and every survival window keys off this. One un-logged pick
+// shifts all of them silently, so it has to be correctable by hand in two seconds.
+function pickNow() { return Math.max(1, draft.order.length + 1 + pickOffset); }
 function roundNow() { return Math.floor(draft.order.length / CONFIG.teams) + 1; }
 function open_() { return board.players.filter(function (p) { return !draft.drafted.has(p.sid); }); }
 function mine_() { return board.players.filter(function (p) { return draft.mine.has(p.sid); }); }
@@ -312,7 +349,13 @@ function advise() {
 
   var ok = all.filter(function (p) { return !blockedReason(p, lu); });
   if (!ok.length) return [];
-  var unit = Math.max(Math.abs(ok[0].blendVor), 1);
+  // Scale the roster-need bonus by what a round of players is worth: best available
+  // minus the twelfth-best. The old scale was |blendVor| of the best man left, which
+  // collapsed to 0.07 around round 8 (exactly when holes start to matter) and then
+  // CLIMBED back to 9.7 by round 16 off the absolute value of an increasingly
+  // negative number. This one stays positive and keeps a sane magnitude throughout.
+  var floorIdx = Math.min(CONFIG.teams - 1, ok.length - 1);
+  var unit = Math.max(ok[0].blendVor - ok[floorIdx].blendVor, 1);
 
   var scored = ok.slice(0, 50).map(function (p) {
     var score = p.blendVor, best = ok[0] === p;
@@ -356,6 +399,37 @@ function stashes() {
                 .sort(function (a, b) { return a.rank - b.rank; }).slice(0, 3);
 }
 
+// Plain-English survival, only where ADP still carries signal. Past roughly pick 160
+// ESPN ADP is averaged over so few real drafts that a percentage would be invented.
+function lastsLine(p, nextPick) {
+  if (!p.adp || p.adp >= 160 || !nextPick) return null;
+  var s = survives(p, nextPick, pickNow());
+  if (s == null) return null;
+  var pct = Math.round(s * 100);
+  if (pct >= 80) return {cls: "wait", txt: "Very likely still here at your next pick (" + pct + "%)"};
+  if (pct >= 55) return {cls: "wait", txt: "Probably still here next turn (" + pct + "%)"};
+  if (pct >= 30) return {cls: "risk", txt: "Coin flip to last to your next pick (" + pct + "%)"};
+  if (pct >= 10) return {cls: "now",  txt: "Unlikely to last (" + pct + "%) &mdash; take him here or lose him"};
+  return {cls: "now", txt: "Will not last. This is your last realistic shot at him"};
+}
+
+// What deferring actually costs: the drop from the best man at a position now to the
+// best one likely to survive to the next turn. This is the exploitation the owner
+// asked for, expressed as a consequence rather than a statistic.
+function waitCost(pos, nextPick) {
+  if (!nextPick) return null;
+  var lu = lineup();
+  var pool = open_().filter(function (p) {
+    return p.pos === pos && !p.late && !blockedReason(p, lu); });
+  if (pool.length < 2) return null;
+  var now = pool[0];
+  var later = pool.filter(function (p) {
+    var s = survives(p, nextPick, pickNow());
+    return s != null && s >= 0.55; })[0];
+  if (!later || later.sid === now.sid) return null;
+  return {now: now, later: later, drop: Math.round(now.blendVor - later.blendVor)};
+}
+
 /* ---------- render ---------- */
 function flags(p) {
   var s = "";
@@ -372,17 +446,21 @@ function renderTurn() {
   var next = up[0], away = next != null ? next - n : null;
   var el = document.getElementById("turn");
   el.className = "turn" + (away === 0 ? " up" : "");
-  el.innerHTML = away == null ? '<span class="pill">Draft done</span>'
+  var status = away == null ? '<span class="pill">Draft done</span>'
     : away === 0 ? '<span class="pill">YOUR PICK NOW</span>'
     : '<span class="pill">Pick ' + next + '</span><span><b>' + away
-      + '</b> pick' + (away === 1 ? "" : "s") + ' away</span>';
+      + '</b> pick' + (away === 1 ? "" : "s") + " away</span>";
+  el.innerHTML = '<button class="fix" id="fixPick" title="Correct this if a pick was '
+    + 'missed">on pick ' + n + "</button>" + status;
   document.getElementById("fmtLine").textContent =
-    CONFIG.label + " · round " + Math.min(roundNow(), CONFIG.rounds) + " of " + CONFIG.rounds;
+    CONFIG.label + " \u00b7 round " + Math.min(roundNow(), CONFIG.rounds)
+    + " of " + CONFIG.rounds;
 }
 
 function renderTake() {
   var recs = advise(), st = stashes();
   var n = pickNow(), ours = MY.indexOf(n) >= 0;
+  var nextPick = MY.filter(function (x) { return x > n; })[0] || null;
   var html = "<h2>" + (ours ? "Your pick &mdash; take one of these"
                              : "Best on the board right now") + "</h2>";
   if (!ours) html += '<div class="notyet">Not your pick yet. If another team takes '
@@ -393,13 +471,29 @@ function renderTake() {
       + '<span class="pos ' + r.p.pos + '">' + (r.p.pos === "DEF" ? "DST" : r.p.pos) + "</span>"
       + '<span><span class="nm">' + esc(r.p.name) + "</span>" + flags(r.p)
       + '<div class="why">' + esc(r.p.team) + " · bye " + (r.p.bye || "?") + " — "
-      + esc(r.why) + "</div></span>"
+      + esc(r.why) + "</div>"
+      + (function () { var l = lastsLine(r.p, nextPick);
+          return l ? '<div class="lasts ' + l.cls + '">' + l.txt + "</div>" : ""; })()
+      + "</span>"
       + '<span class="acts">'
       + '<button class="mini' + (ours ? "" : " lead") + '" data-act="taken" data-sid="'
       + esc(r.p.sid) + '">Someone took him</button>'
       + '<button class="mini' + (ours ? " lead" : "") + '" data-act="ours" data-sid="'
       + esc(r.p.sid) + '">We got him</button></span></div>';
   });
+  // One line on what waiting costs at the position we are being pointed at.
+  if (recs.length && nextPick) {
+    var wc = waitCost(recs[0].p.pos, nextPick);
+    if (wc && wc.drop > 0) {
+      html += '<div class="waitcost">' + (ours
+        ? "<b>If you pass on " + LONG[recs[0].p.pos] + " here:</b> the best one likely to "
+          + "reach your next pick (" + nextPick + ") is " + esc(wc.later.name) + ", about "
+          + wc.drop + " points worse over the season than " + esc(wc.now.name) + "."
+        : "<b>By the time you pick:</b> " + esc(wc.now.name) + " may be gone. The best "
+          + LONG[recs[0].p.pos] + " likely to still be there is " + esc(wc.later.name)
+          + ", about " + wc.drop + " points worse over the season.") + "</div>";
+    }
+  }
   if (st.length) {
     html += '<div class="in" style="border-top:1px solid var(--line)">'
       + '<div style="font-size:12px;color:var(--ink-2);line-height:1.5">'
@@ -410,9 +504,28 @@ function renderTake() {
   document.getElementById("takeCard").innerHTML = html;
 }
 
+// The one bit of whole-draft arithmetic a novice reliably gets wrong: how many
+// picks are left against how many holes remain.
+function ledgerLine(lu) {
+  var left = MY.filter(function (x) { return x >= pickNow(); }).length;
+  var todo = {};
+  lu.filled.forEach(function (f) {
+    if (f.p) return;
+    var k = FLEXP[f.sl] ? "flex" : LONG[f.sl] || f.sl;
+    todo[k] = (todo[k] || 0) + 1;
+  });
+  var ks = Object.keys(todo);
+  return '<div class="ledger">' + (ks.length
+    ? "Still to fill: " + ks.map(function (k) {
+        return "<b>" + todo[k] + " " + k + (todo[k] > 1 && k !== "flex" ? "s" : "") + "</b>";
+      }).join(", ") + ". <b>" + left + "</b> pick" + (left === 1 ? "" : "s") + " left."
+    : "<b>Starting lineup is full.</b> " + left + " pick"
+      + (left === 1 ? "" : "s") + " left for bench and upside.") + "</div>";
+}
+
 function renderRoster() {
   var lu = lineup();
-  var html = "<h2>Our team · " + lu.mine.length + "</h2>";
+  var html = "<h2>Our team · " + lu.mine.length + "</h2>" + ledgerLine(lu);
   lu.filled.forEach(function (f) {
     html += '<div class="slot ' + (f.p ? "on" : "") + '"><i>'
       + (f.sl === "DEF" ? "DST" : f.sl) + "</i>"
@@ -584,6 +697,18 @@ document.addEventListener("click", function (e) {
   if (e.target.closest(".pick")) return;   // the row is not a button; use one
   var pr = e.target.closest(".pr");
   if (pr) { mark(pr.dataset.sid, e.metaKey || e.ctrlKey || e.shiftKey); }
+});
+document.addEventListener("click", function (e) {
+  if (!e.target.closest("#fixPick")) return;
+  var cur = pickNow();
+  var v = prompt("Which pick is the draft actually on right now?\n\n"
+    + "The board thinks it is pick " + cur + ". If someone drafted and it was not "
+    + "logged, put the real number here.", String(cur));
+  if (v == null) return;
+  var want = parseInt(v, 10);
+  if (!want || want < 1) return;
+  pickOffset += want - cur;
+  save(); render();
 });
 document.getElementById("undo").addEventListener("click", function () {
   var last = draft.order[draft.order.length - 1];
