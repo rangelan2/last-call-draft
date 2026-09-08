@@ -15,7 +15,7 @@ var LONG = {QB:"quarterback", RB:"running back", WR:"receiver", TE:"tight end",
             K:"kicker", DEF:"defense"};
 
 var CONFIG = {
-  name: "GSB High Stakes",
+  name: "GSB High Stakes",  // ESPN league
   teams: 12, slot: 3, rounds: 16, budget: 200, fmt: "HALF",
   label: "12 team, half PPR, pick 3",
   roster: ["QB","RB","RB","WR","WR","TE","FLEX","K","DEF",
@@ -136,7 +136,9 @@ function build() {
     players.push({
       name: raw.n, pos: pos, team: raw.t, bye: raw.b, sid: raw.id,
       pts: Math.round(pts * 10) / 10,
-      adp: raw.a[fmt] != null ? raw.a[fmt] : raw.a.PPR,
+      // This is an ESPN league, so plan against ESPN's board. Their drafters follow
+      // ESPN's own rankings and go materially earlier on QB and TE than mock crowds.
+      adp: raw.ea != null ? raw.ea : (raw.a[fmt] != null ? raw.a[fmt] : raw.a.PPR),
       ecr: e ? e[0] : null, ecrBest: e ? e[1] : null, ecrWorst: e ? e[2] : null,
       ecrTierRaw: e ? e[4] : null,
       rookie: raw.k, inj: raw.i,
