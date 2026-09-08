@@ -121,6 +121,23 @@ input{font:inherit;color:inherit}
   border-bottom:1px solid var(--line);background:var(--surface-2)}
 .card .in{padding:13px 14px}
 
+.card.plan{border-color:var(--accent);border-width:2px;background:var(--accent-soft)}
+.card.plan > h2{background:var(--accent);color:#fff}
+.pstep{display:grid;grid-template-columns:30px 1fr;gap:11px;align-items:start;
+  padding:11px 15px;border-bottom:1px solid var(--line);font-size:13px;opacity:.55}
+.pstep:last-child{border-bottom:none}
+.pstep.now{opacity:1;background:var(--surface)}
+.pstep.done{opacity:.75}
+.pstep .num{font-family:var(--disp);font-size:13px;font-weight:700;text-align:center;
+  border-radius:50%;width:24px;height:24px;line-height:24px;background:var(--surface-3);
+  color:var(--ink-3)}
+.pstep.now .num{background:var(--accent);color:#fff}
+.pstep.done .num{background:var(--good);color:#fff}
+.pstep b{font-weight:700}
+.pstep em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:6px}
+.pstep .txt{margin-top:3px;line-height:1.5;color:var(--ink-2)}
+.pstep.now .txt{color:var(--ink)}
+
 /* ---- the pick ---- */
 .card.take{border-color:var(--accent);border-width:2px}
 .card.take > h2{background:var(--accent);color:#fff}
@@ -152,6 +169,7 @@ input{font:inherit;color:inherit}
 .flag.watch{background:var(--warn-soft);color:var(--warn)}
 .flag.ir{background:var(--surface-3);color:var(--ink-2)}
 .flag.rk{background:var(--accent-soft);color:var(--accent)}
+.flag.plan{background:var(--accent);color:#fff}
 .flag.elite{background:var(--good-soft);color:var(--good)}
 
 .rule{display:flex;gap:9px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:12.5px;
@@ -234,6 +252,7 @@ input{font:inherit;color:inherit}
 
   <div class="grid">
     <div>
+      <div class="card plan" id="planCard" hidden></div>
       <div class="card take" id="takeCard"></div>
       <div class="card"><h2>Best available by position</h2>
         <div class="cols" id="cols" style="padding:10px"></div></div>
