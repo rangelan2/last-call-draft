@@ -170,13 +170,20 @@ function build(c) {
   var floor = ranked.length + 1;
   players.forEach(function (p) { if (p.ecr == null) p.ecrRank = floor; });
 
-  // An expert rank is an opinion about order, not points. Translate it into this
-  // league's own currency: if the analysts call a man RB5, credit him with the
-  // value of the fifth-best RB under these rules.
+  // Two consensus views, because they answer different questions. The POSITIONAL
+  // view ("they call him RB3, so credit him with the value of the third-best RB
+  // under these rules") keeps league-specific scoring intact but says nothing about
+  // whether an RB3 outranks a WR1. The OVERALL view ("they call him the 7th best
+  // player alive") is what orders positions against each other. With only the
+  // positional view, cross-position order was driven purely by projections.
   var W = c.ecrWeight == null ? 0.6 : c.ecrWeight;
-  var curve = {};
-  players.forEach(function (p) { (curve[p.pos] = curve[p.pos] || []).push(p.vor); });
+  var curve = {}, all = [];
+  players.forEach(function (p) {
+    (curve[p.pos] = curve[p.pos] || []).push(p.vor);
+    if (!p.late) all.push(p.vor);
+  });
   for (var cp in curve) curve[cp].sort(function (a, b) { return b - a; });
+  all.sort(function (a, b) { return b - a; });
   Object.keys(active).concat(["K","DEF"]).forEach(function (pos) {
     var pool = players.filter(function (p) { return p.pos === pos; });
     if (!pool.length) return;
@@ -185,8 +192,11 @@ function build(c) {
     rk.forEach(function (p, i) { p.ecrPos = i + 1; });
     var cv = curve[pos], fl = Math.min(rk.length, cv.length - 1);
     pool.forEach(function (p) {
-      var idx = p.ecrPos ? Math.min(p.ecrPos - 1, cv.length - 1) : fl;
-      p.blendVor = W * cv[idx] + (1 - W) * p.vor;
+      var pi = p.ecrPos ? Math.min(p.ecrPos - 1, cv.length - 1) : fl;
+      var byPos = cv[pi];
+      var oi = p.ecrRank ? Math.min(p.ecrRank - 1, all.length - 1) : all.length - 1;
+      var byAll = p.late ? byPos : all[oi];
+      p.blendVor = W * (0.5 * byAll + 0.5 * byPos) + (1 - W) * p.vor;
       p.leagueShift = p.ecr != null ? p.ecrRank - p.vorRank : null;
     });
   });

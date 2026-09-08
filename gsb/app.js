@@ -157,9 +157,23 @@ function build() {
   players.forEach(function (p) { if (p.ecr == null) p.ecrRank = ranked.length + 1; });
 
   // Consensus translated into this league's points, then blended with projection.
-  var curve = {};
-  players.forEach(function (p) { (curve[p.pos] = curve[p.pos] || []).push(p.vor); });
+  //
+  // Two consensus views, because they answer different questions and a board needs
+  // both. The POSITIONAL view ("they call him RB3, so credit him with the value of
+  // the third-best RB under these rules") keeps league-specific scoring intact but
+  // says nothing about whether an RB3 outranks a WR1. The OVERALL view ("they call
+  // him the 7th best player alive, so credit him with the value of the 7th pick on
+  // this board") is what actually orders positions against each other. Using only
+  // the positional view left cross-position order driven purely by projections,
+  // which is how a 30-year-old running back ended up ranked over the consensus WR1.
+  var curve = {}, all = [];
+  players.forEach(function (p) {
+    (curve[p.pos] = curve[p.pos] || []).push(p.vor);
+    if (!p.late) all.push(p.vor);
+  });
   for (var cp in curve) curve[cp].sort(function (a, b) { return b - a; });
+  all.sort(function (a, b) { return b - a; });
+
   Object.keys(active).forEach(function (pos) {
     var pool = players.filter(function (p) { return p.pos === pos; });
     var rk = pool.filter(function (p) { return p.ecr != null; })
@@ -167,8 +181,12 @@ function build() {
     rk.forEach(function (p, i) { p.ecrPos = i + 1; });
     var cv = curve[pos], fl = Math.min(rk.length, cv.length - 1);
     pool.forEach(function (p) {
-      var idx = p.ecrPos ? Math.min(p.ecrPos - 1, cv.length - 1) : fl;
-      p.blendVor = 0.6 * cv[idx] + 0.4 * p.vor;
+      var pi = p.ecrPos ? Math.min(p.ecrPos - 1, cv.length - 1) : fl;
+      var byPos = cv[pi];
+      var oi = p.ecrRank ? Math.min(p.ecrRank - 1, all.length - 1) : all.length - 1;
+      var byAll = p.late ? byPos : all[oi];
+      var consensus = 0.5 * byAll + 0.5 * byPos;
+      p.blendVor = 0.6 * consensus + 0.4 * p.vor;
     });
   });
 
