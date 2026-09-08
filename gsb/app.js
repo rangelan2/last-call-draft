@@ -317,7 +317,10 @@ function advise() {
     var samePos = ok.filter(function (x) { return x.pos === p.pos; });
     var bestAtPos = samePos[0] === p;
     var mates = samePos.filter(function (x) { return x.tier === p.tier; });
-    if (gap[p.pos]) score += unit * 0.14;
+    // Scale the need by how many slots it actually fills. A flat bonus treated an
+    // empty backfield with three open spots the same as a position already covered,
+    // which let two elite tight ends crowd out the running backs entirely.
+    if (gap[p.pos]) score += unit * 0.14 * gap[p.pos];
     if (mates.length <= 2 && mates[0] === p) score += unit * 0.10;
     if (p.eliteTE && (lineup().counts.TE || 0) === 0) score += unit * 0.08;
     if (p.eliteQB && p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy) score += unit * 0.30;
