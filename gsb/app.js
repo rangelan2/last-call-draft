@@ -51,9 +51,7 @@ var CONFIG = {
 // one is never recommended, however good the numbers look.
 var RULES = {
   eliteTE: ["Brock Bowers", "Trey McBride", "Colston Loveland", "Tyler Warren"],
-  eliteQB: ["Josh Allen", "Lamar Jackson", "Drake Maye"],
-  qbHoldUntilRound: 8,   // no quarterback before here unless an elite one falls
-  eliteFallBy: 12,       // "way below ADP" means this many picks past it
+  qbHoldUntilRound: 8,   // no quarterback before here, no exceptions
   teStreamRound: 12,     // a non-elite tight end is a last-rounds commodity
   maxQB: 2, maxTE: 1,    // one tight end. No exception, elite or not.
   // Players Anthony knows are not playing soon. The data cannot see this: Sleeper
@@ -183,7 +181,6 @@ function build() {
       avail: forcedOut ? "out" : (raw.av || "ok"),
       irOk: raw.ir === 1 || forcedOut,
       eliteTE: RULES.eliteTE.indexOf(raw.n) >= 0,
-      eliteQB: RULES.eliteQB.indexOf(raw.n) >= 0,
       late: pos === "K" || pos === "DEF"
     });
   });
@@ -462,10 +459,11 @@ function blockedReason(p, lu) {
   if (p.pos === "QB") {
     if ((have.QB || 0) >= RULES.maxQB) return "we already have two quarterbacks";
     if ((have.QB || 0) >= 1 && round < last - 3) return "one quarterback is enough for now";
-    if ((have.QB || 0) === 0 && round < RULES.qbHoldUntilRound) {
-      var fell = p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy;
-      if (!(p.eliteQB && fell)) return "too early for a quarterback";
-    }
+    // A flat hold. There used to be an escape hatch for an elite quarterback who
+    // fell well past his ADP, but it fires rarely, it is the hardest rule on the
+    // board to check under a clock, and getting it wrong costs a round.
+    if ((have.QB || 0) === 0 && round < RULES.qbHoldUntilRound)
+      return "too early for a quarterback";
   }
   // One tight end, full stop. There used to be an exception allowing a second when
   // both were elite, and it was a trap: Bowers and McBride share an ESPN ADP of 24,
@@ -524,17 +522,13 @@ function advise() {
     if (gap[p.pos]) score += unit * 0.14 * gap[p.pos];
     if (mates.length <= 2 && mates[0] === p) score += unit * 0.10;
     if (p.eliteTE && (lineup().counts.TE || 0) === 0) score += unit * 0.08;
-    if (p.eliteQB && p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy) score += unit * 0.30;
 
     var lead = best ? "The best player left, at any position"
              : bestAtPos ? "The best " + LONG[p.pos] + " left"
              : "Still one of the best available";
     if (gap[p.pos]) lead += ", and we still need a " + LONG[p.pos];
     var tail = "";
-    if (p.eliteQB && p.adp && (pickNow() - p.adp) >= RULES.eliteFallBy)
-      tail = " He has fallen " + Math.round(pickNow() - p.adp) + " picks past where he usually goes, "
-           + "which is the only reason to take a quarterback this early.";
-    else if (p.eliteTE && (lineup().counts.TE || 0) === 0)
+    if (p.eliteTE && (lineup().counts.TE || 0) === 0)
       tail = " One of the four tight ends worth a real pick.";
     else if (mates.length === 1) tail = " He is the last one at this level before a real drop.";
     else if (mates.length === 2) tail = " Only two are left at this level.";
@@ -646,7 +640,7 @@ function flags(p) {
   if (p.avail === "out") s += '<span class="flag out">OUT A WHILE</span>';
   else if (p.avail === "watch") s += '<span class="flag watch">' + esc(String(p.inj).toUpperCase().slice(0,4)) + '</span>';
   if (p.irOk) s += '<span class="flag ir">IR STASH</span>';
-  if (p.eliteTE || p.eliteQB) s += '<span class="flag elite">ELITE</span>';
+  if (p.eliteTE) s += '<span class="flag elite">ELITE</span>';
   if (p.rookie) s += '<span class="flag rk">ROOKIE</span>';
   return s;
 }
@@ -882,9 +876,8 @@ function renderRules() {
   var lu = lineup(), c = lu.counts, round = roundNow();
   var r = [];
   r.push({on: (c.QB || 0) >= 1, hit: (c.QB || 0) > RULES.maxQB, ic: "QB",
-    t: "<b>" + (c.QB || 0) + " of max 2.</b> No quarterback before round "
-       + RULES.qbHoldUntilRound + " unless Allen, Lamar or Maye falls "
-       + RULES.eliteFallBy + "+ picks."});
+    t: "<b>" + (c.QB || 0) + " of max 2.</b> No quarterback until round "
+       + RULES.qbHoldUntilRound + ", whoever is on the board. One is enough."});
   r.push({on: (c.TE || 0) >= 1, hit: (c.TE || 0) > RULES.maxTE, ic: "TE",
     t: "<b>" + (c.TE || 0) + " of 1.</b> One tight end only. Bowers, McBride, Loveland "
        + "or Warren are worth an early pick; any other waits until round "
@@ -937,7 +930,7 @@ function renderCols() {
         + esc(p.sid) + '"><i class="band" style="background:' + tv(p.tier) + '"></i>'
         + '<span class="n">' + esc(p.name)
         + (p.avail === "out" ? ' <span class="flag out">OUT</span>' : "")
-        + (p.eliteTE || p.eliteQB ? ' <span class="flag elite">E</span>' : "") + "</span>"
+        + (p.eliteTE ? ' <span class="flag elite">E</span>' : "") + "</span>"
         + '<span class="tm">' + esc(p.team) + "·" + (p.bye || "?") + "</span>"
         + '<span class="v">' + Math.round(p.blendVor) + "</span></div>";
     });
