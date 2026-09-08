@@ -306,6 +306,28 @@ function poolShare() {
   return (n + 8) / (made + 8);
 }
 
+// Which distinct opposing teams pick between two of her picks. On the turn this is
+// far fewer than the pick count: between her 22 and her 27 there are four picks but
+// only two teams, each picking twice back to back.
+function teamAt(pick) {
+  var rd = Math.floor((pick - 1) / CONFIG.teams) + 1;
+  var pos = ((pick - 1) % CONFIG.teams) + 1;
+  return rd % 2 === 0 ? CONFIG.teams - pos + 1 : pos;
+}
+function rivalsBetween(now, target) {
+  var seen = {}, n = 0;
+  for (var k = now; k < target; k++) {
+    if (MY.indexOf(k) >= 0) continue;
+    var t = teamAt(k);
+    if (!seen[t]) { seen[t] = 1; n++; }
+  }
+  return n;
+}
+// Positions a team starts exactly one of. No sane opponent spends two picks on two
+// elite tight ends, so the number of them that can disappear in a window is bounded
+// by the number of distinct teams picking in it, not by the number of picks.
+var ONE_SLOT = {QB: 1, TE: 1, K: 1, DEF: 1};
+
 // The map every surface reads, so no two panels can disagree. Returns null rather
 // than a guess whenever the read is not there.
 function keepMap(avail, now, target) {
@@ -319,6 +341,20 @@ function keepMap(avail, now, target) {
   var tq = tiltTo(qs, T);
   var out = {};
   pool.forEach(function (p, i) { out[p.sid] = 1 - tq[i]; });
+
+  // Cap departures at single-slot positions by how many distinct teams can take one.
+  // Without this the model treated four picks as four independent shots at the tight
+  // ends and had both of the top two gone 56% of the time, when the four picks belong
+  // to only two teams and neither takes two. The true figure is nearer 19%.
+  var rivals = rivalsBetween(now, target);
+  Object.keys(ONE_SLOT).forEach(function (pos) {
+    var grp = pool.filter(function (p) { return p.pos === pos; });
+    if (!grp.length) return;
+    var expGone = grp.reduce(function (t, p) { return t + (1 - out[p.sid]); }, 0);
+    if (expGone <= rivals || expGone <= 1e-9) return;
+    var scale = rivals / expGone;
+    grp.forEach(function (p) { out[p.sid] = clampN(1 - (1 - out[p.sid]) * scale, 0, 1); });
+  });
   return out;
 }
 
@@ -587,6 +623,20 @@ function renderTake() {
       + '<button class="mini' + (ours ? " lead" : "") + '" data-act="ours" data-sid="'
       + esc(r.p.sid) + '">We got him</button></span></div>';
   });
+  // On the turn, few teams pick before she is back up, which is why waiting is safer
+  // than the raw pick count suggests. Say so, because it is the reason.
+  if (nextPick) {
+    var gap = 0;
+    for (var k = n; k < nextPick; k++) if (MY.indexOf(k) < 0) gap++;
+    var rv = rivalsBetween(n, nextPick);
+    if (gap >= 2 && rv > 0 && rv < gap) {
+      html += '<div class="turnline">Only <b>' + rv + " other team" + (rv === 1 ? "" : "s")
+        + "</b> pick" + (rv === 1 ? "s" : "") + " before your pick " + nextPick
+        + ", not " + gap + ". They pick back to back around the turn, and no team "
+        + "takes two of the same position, so fewer players disappear than the gap "
+        + "suggests.</div>";
+    }
+  }
   // One line on what waiting costs at the position we are being pointed at.
   if (recs.length && nextPick && km) {
     var wc = waitCost(recs[0].p.pos, km, nextPick);
