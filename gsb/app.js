@@ -55,7 +55,7 @@ var RULES = {
   qbHoldUntilRound: 8,   // no quarterback before here unless an elite one falls
   eliteFallBy: 12,       // "way below ADP" means this many picks past it
   teStreamRound: 12,     // a non-elite tight end is a last-rounds commodity
-  maxQB: 2, maxTE: 1,    // maxTE lifts to 2 only when both are elite
+  maxQB: 2, maxTE: 1,    // one tight end. No exception, elite or not.
   // Players Anthony knows are not playing soon. The data cannot see this: Sleeper
   // still lists both as merely Questionable.
   alsoOut: ["Isiah Pacheco", "Josh Jacobs"]
@@ -414,8 +414,6 @@ function lineup() {
 // Returns null if the player is draftable right now, or a string saying why not.
 function blockedReason(p, lu) {
   var round = roundNow(), have = lu.counts, last = CONFIG.rounds;
-  var myEliteTE = lu.mine.filter(function (x) { return x.pos === "TE" && x.eliteTE; }).length;
-
   if (p.pos === "QB") {
     if ((have.QB || 0) >= RULES.maxQB) return "we already have two quarterbacks";
     if ((have.QB || 0) >= 1 && round < last - 3) return "one quarterback is enough for now";
@@ -424,13 +422,14 @@ function blockedReason(p, lu) {
       if (!(p.eliteQB && fell)) return "too early for a quarterback";
     }
   }
+  // One tight end, full stop. There used to be an exception allowing a second when
+  // both were elite, and it was a trap: Bowers and McBride share an ESPN ADP of 24,
+  // so in any draft where they reach picks 22 and 27 the board would happily spend
+  // both on a position that starts one.
   if (p.pos === "TE") {
-    if ((have.TE || 0) === 0) {
-      if (!p.eliteTE && round < RULES.teStreamRound)
-        return "not an elite tight end, and those are a late-round commodity";
-    } else if ((have.TE || 0) === 1) {
-      if (!(p.eliteTE && myEliteTE >= 1)) return "we already have our tight end";
-    } else return "we already have two tight ends";
+    if ((have.TE || 0) >= 1) return "we already have our tight end";
+    if (!p.eliteTE && round < RULES.teStreamRound)
+      return "not an elite tight end, and those are a late-round commodity";
   }
   if (p.late && myPicksLeft() > 2) return "kickers and defenses come last";
   if (p.avail === "out" && myPicksLeft() > 3) return "he is not playing any time soon";
@@ -655,15 +654,15 @@ function renderRoster() {
 
 function renderRules() {
   var lu = lineup(), c = lu.counts, round = roundNow();
-  var myEliteTE = lu.mine.filter(function (p) { return p.pos === "TE" && p.eliteTE; }).length;
   var r = [];
   r.push({on: (c.QB || 0) >= 1, hit: (c.QB || 0) > RULES.maxQB, ic: "QB",
     t: "<b>" + (c.QB || 0) + " of max 2.</b> No quarterback before round "
        + RULES.qbHoldUntilRound + " unless Allen, Lamar or Maye falls "
        + RULES.eliteFallBy + "+ picks."});
-  r.push({on: (c.TE || 0) >= 1, hit: (c.TE || 0) > (myEliteTE >= 2 ? 2 : RULES.maxTE), ic: "TE",
-    t: "<b>" + (c.TE || 0) + " rostered.</b> Only one unless we land two of Bowers, McBride, "
-       + "Loveland or Warren. Everyone else waits until round " + RULES.teStreamRound + "."});
+  r.push({on: (c.TE || 0) >= 1, hit: (c.TE || 0) > RULES.maxTE, ic: "TE",
+    t: "<b>" + (c.TE || 0) + " of 1.</b> One tight end only. Bowers, McBride, Loveland "
+       + "or Warren are worth an early pick; any other waits until round "
+       + RULES.teStreamRound + "."});
   r.push({on: (c.K || 0) + (c.DEF || 0) > 0, ic: "K/D",
     t: "<b>Last two rounds only.</b> Kicker and defense are never worth an early pick."});
   r.push({on: lu.mine.some(function (p) { return p.irOk; }), ic: "IR",
