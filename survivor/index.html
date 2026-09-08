@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Survivor Auction Board</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F6F7F6; --surface:#FFFFFF; --surface-2:#EEF1EF; --surface-3:#E3E7E5;
+  --ink:#15181A; --ink-2:#4B5254; --ink-3:#838B8D;
+  --line:#DBDFDD; --line-2:#C3C9C6;
+  --accent:#B4711C; --accent-soft:#F5E8D2;
+  --good:#1C7A4E; --good-soft:#DDEFE5;
+  --bad:#B03A2B; --bad-soft:#F8E1DD;
+  --warn:#8A6212; --warn-soft:#F7EBD2;
+  --t1:#0D7A6F; --t2:#2F8B4F; --t3:#6D8F2A; --t4:#AC8611; --t5:#C4761F;
+  --t6:#B4552C; --t7:#9C3D3D; --t8:#7A4A63; --t9:#5C6370; --t10:#6E7478; --t11:#828789;
+  --shadow:0 1px 2px rgba(20,25,25,.05),0 3px 12px rgba(20,25,25,.05);
+  --lift:0 8px 30px rgba(20,25,25,.13);
+  --qb:#8C5C77; --rb:#128C7E; --wr:#3B72C4; --te:#C07A18; --k:#6B7378; --def:#7BA02F;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --disp:"Archivo",system-ui,-apple-system,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101314; --surface:#171B1C; --surface-2:#1D2223; --surface-3:#272D2E;
+  --ink:#E9EDEB; --ink-2:#A4ACAD; --ink-3:#6F7879;
+  --line:#282F30; --line-2:#394142;
+  --accent:#E3A64A; --accent-soft:#3A2E1B;
+  --good:#4FBF87; --good-soft:#16301F;
+  --bad:#E4796A; --bad-soft:#361C1A;
+  --warn:#E0B65C; --warn-soft:#332813;
+  --t1:#2FB3A3; --t2:#5CC47D; --t3:#9BC44A; --t4:#DCB43A; --t5:#E39A4E;
+  --t6:#DE7C55; --t7:#D06B6B; --t8:#A98BA0; --t9:#8A9295; --t10:#78807F; --t11:#656C6D;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 3px 12px rgba(0,0,0,.25);
+  --lift:0 8px 30px rgba(0,0,0,.45);
+}}
+:root[data-theme="dark"]{
+  --bg:#101314; --surface:#171B1C; --surface-2:#1D2223; --surface-3:#272D2E;
+  --ink:#E9EDEB; --ink-2:#A4ACAD; --ink-3:#6F7879;
+  --line:#282F30; --line-2:#394142;
+  --accent:#E3A64A; --accent-soft:#3A2E1B;
+  --good:#4FBF87; --good-soft:#16301F;
+  --bad:#E4796A; --bad-soft:#361C1A;
+  --warn:#E0B65C; --warn-soft:#332813;
+  --t1:#2FB3A3; --t2:#5CC47D; --t3:#9BC44A; --t4:#DCB43A; --t5:#E39A4E;
+  --t6:#DE7C55; --t7:#D06B6B; --t8:#A98BA0; --t9:#8A9295; --t10:#78807F; --t11:#656C6D;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 3px 12px rgba(0,0,0,.25);
+  --lift:0 8px 30px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;
+  -webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+[hidden]{display:none!important}
+.tnum{font-variant-numeric:tabular-nums}
+
+.bar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--line);
+  box-shadow:var(--shadow)}
+.bar-in{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:9px 18px;
+  max-width:1400px;margin:0 auto}
+.brand{font-family:var(--disp);font-size:15px;font-weight:700}
+.brand em{font-style:normal;color:var(--ink-3);font-weight:500;font-size:12px;margin-left:8px}
+.money{display:flex;gap:18px;margin-left:auto;align-items:center}
+.mo{text-align:right}
+.mo b{display:block;font-family:var(--mono);font-size:18px;font-weight:600;line-height:1.1}
+.mo span{font-family:var(--disp);font-size:8.5px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3)}
+.mo.max b{color:var(--accent)}
+.mo.warn b{color:var(--bad)}
+.tools{display:flex;gap:6px}
+.btn{padding:6px 11px;border:1px solid var(--line-2);border-radius:7px;font-size:12.5px;
+  background:var(--surface-2);color:var(--ink-2)}
+.btn:hover{border-color:var(--accent);color:var(--ink)}
+
+.page{max-width:1400px;margin:0 auto;padding:16px 18px 60px}
+.mark{background:var(--surface);border:1px solid var(--line);border-radius:13px;
+  box-shadow:var(--lift);padding:15px 18px;margin-bottom:16px;position:relative;z-index:30}
+.mark h2{font-family:var(--disp);font-size:15px;font-weight:700;margin:0 0 3px}
+.mark p{margin:0 0 11px;color:var(--ink-3);font-size:12.5px}
+.mark .box{position:relative}
+.mark input{width:100%;padding:12px 15px;font-size:17px;border:2px solid var(--line-2);
+  border-radius:10px;background:var(--surface-2)}
+.mark input:focus{border-color:var(--accent);outline:none}
+.res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);
+  border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--lift);
+  max-height:360px;overflow-y:auto;z-index:40}
+.res .row{display:grid;grid-template-columns:46px 1fr auto auto auto;gap:10px;align-items:center;
+  padding:9px 13px;border-bottom:1px solid var(--line);cursor:pointer}
+.res .row:last-child{border-bottom:none}
+.res .row:hover,.res .row.sel{background:var(--accent-soft)}
+.res .row.gone{opacity:.55;background:var(--surface-2)}
+.res .nm{font-size:14.5px;font-weight:600}
+.res .sub{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.res .val{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent)}
+.res .take{font-family:var(--disp);font-size:10px;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--ink-3);border:1px solid var(--line-2);border-radius:6px;
+  padding:5px 9px;white-space:nowrap}
+.res .take:hover{border-color:var(--accent);color:var(--accent)}
+.res .none{padding:13px;color:var(--ink-3);font-size:13px}
+.pos{font-family:var(--disp);font-size:10.5px;font-weight:700;color:#fff;padding:4px 0;
+  border-radius:6px;text-align:center;display:block}
+.pos.QB{background:var(--qb)} .pos.RB{background:var(--rb)} .pos.WR{background:var(--wr)}
+.pos.TE{background:var(--te)} .pos.K{background:var(--k)} .pos.DEF{background:var(--def)}
+
+.grid{display:grid;grid-template-columns:1fr 330px;gap:16px;align-items:start}
+@media (max-width:1080px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);overflow:hidden;margin-bottom:14px}
+.card > h2{font-family:var(--disp);font-size:10.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-3);margin:0;padding:10px 14px 9px;
+  border-bottom:1px solid var(--line);background:var(--surface-2)}
+.card .in{padding:12px 14px}
+.legend{padding:9px 14px;border-bottom:1px solid var(--line);background:var(--surface-2);
+  font-size:12px;line-height:1.5;color:var(--ink-2)}
+.legend b{color:var(--ink)}
+
+.cols{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));padding:10px}
+.col{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.col-h{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);
+  background:var(--surface-2)}
+.col-h .t{font-family:var(--disp);font-size:12.5px;font-weight:700}
+.col-h .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.rows{max-height:min(56vh,540px);overflow-y:auto}
+.pr{display:grid;grid-template-columns:3px 1fr 40px 42px;gap:6px;align-items:center;height:27px;
+  padding-right:9px;border-bottom:1px solid var(--line);cursor:pointer}
+.pr:last-child{border-bottom:none}
+.pr:hover{background:var(--surface-2)}
+.pr .band{height:100%}
+.pr .n{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr .tm{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);text-align:right}
+.pr .v{font-family:var(--mono);font-size:12px;font-weight:700;text-align:right;color:var(--accent)}
+.pr .v s,.res .val s{display:block;font-size:9px;font-weight:400;color:var(--ink-3);
+  text-decoration:line-through}
+.pr.mine{background:var(--good-soft)}
+.pr.mine .v{color:var(--good)}
+
+.flag{display:inline-block;font-family:var(--mono);font-size:9px;font-weight:600;
+  padding:1px 4px;border-radius:3px;margin-left:5px}
+.flag.out{background:var(--bad-soft);color:var(--bad)}
+.flag.watch{background:var(--warn-soft);color:var(--warn)}
+.flag.rk{background:var(--accent-soft);color:var(--accent)}
+
+.slot{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:baseline;
+  padding:5px 14px;border-bottom:1px solid var(--line);font-size:12.5px}
+.slot:last-child{border-bottom:none}
+.slot i{font-family:var(--disp);font-style:normal;font-size:9px;font-weight:700;color:var(--ink-3)}
+.slot.on i{color:var(--accent)}
+.slot b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slot em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--good);font-weight:600}
+.slot .mt{color:var(--ink-3);font-style:italic}
+.note{display:flex;gap:8px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:12.5px;
+  line-height:1.45;color:var(--ink-2)}
+.note:last-child{border-bottom:none}
+.note .ic{font-family:var(--mono);font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;
+  flex-shrink:0;height:fit-content;background:var(--surface-3);color:var(--ink-3)}
+.note.hot .ic{background:var(--bad-soft);color:var(--bad)}
+.note.ok .ic{background:var(--good-soft);color:var(--good)}
+.note b{color:var(--ink)}
+.foot{max-width:1400px;margin:0 auto;padding:4px 18px 40px;color:var(--ink-3);font-size:11.5px;
+  line-height:1.6}
+.foot b{color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="bar"><div class="bar-in">
+  <span class="brand">Survivor Auction <em id="fmtLine"></em></span>
+  <div class="money" id="money"></div>
+  <div class="tools">
+    <button class="btn" id="undo">Undo last</button>
+    <button class="btn" id="reset">Start over</button>
+  </div>
+</div></div>
+
+<div class="page">
+  <section class="mark">
+    <h2>Who just got bought?</h2>
+    <p>Type any part of the name, then enter what he went for.</p>
+    <div class="box">
+      <input id="q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Start typing a name...">
+      <div class="res" id="res" hidden></div>
+    </div>
+  </section>
+  <div class="grid">
+    <div>
+      <div class="card"><h2>What everyone is worth</h2>
+        <div class="legend" id="legend"></div>
+        <div class="cols" id="cols"></div></div>
+    </div>
+    <aside>
+      <div class="card" id="rosterCard"></div>
+      <div class="card"><h2>Watch out for</h2><div class="in" id="notes"></div></div>
+    </aside>
+  </div>
+</div>
+<div class="foot" id="foot"></div>
+<script src="../payload.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
