@@ -149,21 +149,90 @@ function spotsLeft() { return CONFIG.spots - owned(); }
 // Must keep $1 back for every other slot still to fill.
 function maxBid() { return Math.max(0, left() - (spotsLeft() - 1)); }
 
-// Are players going over or under what this board thinks? Everything still on the
-// board reprices by that factor, so late value is not judged against stale numbers.
-function inflation() {
-  var paid = 0, worth = 0;
+// LIVE CALIBRATION.
+//
+// The starting curve was fitted to two prices the owner guessed from experience.
+// Guesses are a fine place to start and a bad place to stay, so once real sales land
+// the board refits the curve to them and stops trusting the guess.
+//
+// Two things are being learned. The SHAPE, meaning how much of the money piles onto
+// the top, which is the floor below which value earns nothing. And the SCALE, which
+// is not learned at all but forced: whatever money is left in the league has to be
+// spent on the spots still to fill, so the remaining prices are normalised to it.
+function sales() {
+  var out = [];
   board.players.forEach(function (p) {
     var pr = draft.gone[p.sid];
-    if (pr == null || p.raw <= 1) return;
-    paid += pr; worth += p.val;
+    if (pr != null) out.push({vor: p.vor, price: pr, name: p.name});
   });
-  if (worth < 40) return 1;
-  return Math.max(0.6, Math.min(1.6, paid / worth));
+  return out;
 }
-function target(p) { return Math.max(1, Math.round(p.val * inflation())); }
+var MIN_SALES = 6;
+function calibrate() {
+  var s = sales();
+  var real = s.filter(function (x) { return x.price > 1; });
+  if (real.length < MIN_SALES)
+    return {floor: CONFIG.vorFloor, slope: null, n: real.length, fitted: false};
+  // Grid over the floor; for each, the best-fit slope is closed form.
+  var best = null;
+  for (var F = 0; F <= 110; F += 2) {
+    var sxy = 0, sxx = 0;
+    real.forEach(function (x) {
+      var v = Math.max(x.vor - F, 0);
+      sxy += v * (x.price - 1); sxx += v * v;
+    });
+    if (sxx <= 1e-9) continue;
+    var a = sxy / sxx;
+    if (a <= 0) continue;
+    var err = 0;
+    real.forEach(function (x) {
+      var pred = 1 + a * Math.max(x.vor - F, 0);
+      err += (pred - x.price) * (pred - x.price);
+    });
+    if (!best || err < best.err) best = {floor: F, slope: a, err: err};
+  }
+  if (!best) return {floor: CONFIG.vorFloor, slope: null, n: real.length, fitted: false};
+  return {floor: best.floor, slope: best.slope, n: real.length, fitted: true,
+          rmse: Math.sqrt(best.err / real.length)};
+}
 
-/* ---------- helpers ---------- */
+var CAL = null;
+function moneyLeftLeague() {
+  var paid = 0;
+  for (var s in draft.gone) paid += draft.gone[s];
+  return CONFIG.teams * CONFIG.budget - paid;
+}
+function spotsLeftLeague() {
+  return CONFIG.teams * CONFIG.spots - Object.keys(draft.gone).length;
+}
+
+// Reprice everyone still on the board against the fitted curve, normalised so the
+// money actually left in the league is exactly what gets spent on the spots left.
+function repriceOpen() {
+  CAL = calibrate();
+  var open = open_();
+  var spots = Math.max(spotsLeftLeague(), 1);
+  var money = Math.max(moneyLeftLeague(), spots);
+  var shape = function (p) {
+    return CAL.fitted
+      ? 1 + CAL.slope * Math.max(p.vor - CAL.floor, 0)
+      : p.raw;
+  };
+  var ranked = open.slice().sort(function (a, b) { return shape(b) - shape(a); });
+  var buyers = ranked.slice(0, spots);
+  var rawSurplus = buyers.reduce(function (t, p) { return t + (shape(p) - 1); }, 0);
+  var realSurplus = money - spots;                 // a dollar has to be kept per spot
+  var k = rawSurplus > 0 ? realSurplus / rawSurplus : 0;
+  open.forEach(function (p) {
+    var base = Math.max(1, 1 + (shape(p) - 1) * k);
+    var d = CONFIG.discount[p.avail];
+    p.live = Math.max(1, Math.round(base * (d == null ? 1 : d)));
+    p.liveRaw = Math.max(1, Math.round(base));
+  });
+}
+function target(p) { return p.live != null ? p.live : p.val; }
+
+/* ---------- helpers ---------- *//* ---------- helpers ---------- */
 function open_() { return board.players.filter(function (p) { return draft.gone[p.sid] == null; }); }
 function mine_() { return board.players.filter(function (p) { return draft.mine[p.sid] != null; }); }
 function tv(t) { return "var(--t" + Math.min(t || 11, 11) + ")"; }
@@ -232,7 +301,7 @@ function renderMoney() {
 }
 
 function renderCols() {
-  var infl = inflation(), html = "";
+  var html = "";
   board.positions.forEach(function (pos) {
     var all = board.players.filter(function (p) { return p.pos === pos; });
     var live = all.filter(function (p) { return draft.gone[p.sid] == null; });
@@ -251,16 +320,65 @@ function renderCols() {
       + " left</span></div><div class=\"rows\">" + rows + "</div></section>";
   });
   document.getElementById("cols").innerHTML = html;
-  var pct = Math.round((infl - 1) * 100);
+  var g = board.players[0];
   document.getElementById("legend").innerHTML =
     "The number is <b>what he is worth to you</b>, not what he will go for. Never bid past "
     + "it unless you have a reason. Prices already include the survivor discount for "
     + "anyone carrying an injury tag. A struck-through number is what he would be "
     + "worth if he were fully healthy."
-    + (Math.abs(pct) >= 4
-        ? " <b>The room is paying " + Math.abs(pct) + "% " + (pct > 0 ? "over" : "under")
-          + "</b> these numbers so far, and everything below is adjusted for that."
-        : "");
+    + (CAL && CAL.fitted
+        ? " <b>These prices are now learned from " + CAL.n + " real sales in this room</b>, "
+          + "not from a guess."
+        : " <b>These are starting estimates.</b> They retune themselves once "
+          + MIN_SALES + " players have actually sold.");
+}
+
+// Show the calibration working, because a number that silently changes under her is
+// worse than one that is wrong out loud.
+function renderCal() {
+  var el = document.getElementById("calCard");
+  var top = board.players[0];
+  var live = target(top), guess = top.val;
+  var html = "<h2>Price calibration</h2>";
+  if (!CAL || !CAL.fitted) {
+    html += '<div class="calnote">Prices are still the <b>starting estimate</b>, fitted to '
+      + "the two reference prices you supplied. After <b>" + MIN_SALES + " players actually "
+      + "sell</b> the board refits the curve to what this room is really paying and stops "
+      + "using the guess. <b>" + (CAL ? CAL.n : 0) + " of " + MIN_SALES + "</b> so far.</div>";
+  } else {
+    // Two different facts, and confusing them would invert the advice. What the room
+    // PAID versus what the board expected, and which way the players still on the
+    // board have therefore moved. Overspending early leaves less money chasing
+    // everyone else, so the survivors get CHEAPER, not dearer.
+    var paid = 0, expect = 0;
+    board.players.forEach(function (p) {
+      var pr = draft.gone[p.sid];
+      if (pr == null || p.val <= 1) return;
+      paid += pr; expect += p.val;
+    });
+    var room = expect > 0 ? Math.round((paid / expect - 1) * 100) : 0;
+    var drift = Math.round((live / Math.max(guess, 1) - 1) * 100);
+    html += '<div class="calnote">Learned from <b>' + CAL.n + " real sales</b> in this room, "
+      + "not from a guess. "
+      + (Math.abs(room) < 5
+          ? "Bidding is landing about where your reference prices expected."
+          : "The room is paying <b>" + Math.abs(room) + "% " + (room > 0 ? "over" : "under")
+            + "</b> what this board expected, so there is <b>"
+            + (room > 0 ? "less" : "more") + " money left</b> chasing everyone else and "
+            + "the players still available got <b>" + (drift > 0 ? "more expensive" : "cheaper")
+            + "</b>.") + "</div>";
+    html += '<div class="calrow"><span>Sales used</span><b>' + CAL.n + "</b></div>";
+    html += '<div class="calrow"><span>Typical miss per player</span><b>$'
+      + Math.round(CAL.rmse) + "</b></div>";
+  }
+  html += '<div class="calrow"><span>Best left on the board</span><b>$' + live + "</b></div>";
+  html += '<div class="calrow"><span>Money still in the room</span><b>$' + moneyLeftLeague()
+    + "</b></div>";
+  html += '<div class="calrow"><span>Spots still to fill</span><b>' + spotsLeftLeague()
+    + "</b></div>";
+  html += '<div class="calrow"><span>Average left per spot</span><b>$'
+    + (moneyLeftLeague() / Math.max(spotsLeftLeague(), 1)).toFixed(0) + "</b></div>";
+  el.innerHTML = html;
 }
 
 function renderRoster() {
@@ -320,7 +438,7 @@ function renderFoot() {
     + "week is a week you can lose the season. Data pulled " + esc(P.gen) + ".";
 }
 
-function render() { renderMoney(); renderCols(); renderRoster(); renderNotes(); renderFoot(); }
+function render() { repriceOpen(); renderMoney(); renderCal(); renderCols(); renderRoster(); renderNotes(); renderFoot(); }
 
 /* ---------- marking ---------- */
 function buy(sid, price, isMine) {

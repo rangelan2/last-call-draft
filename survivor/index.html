@@ -163,6 +163,15 @@ input{font:inherit;color:inherit}
 .note.hot .ic{background:var(--bad-soft);color:var(--bad)}
 .note.ok .ic{background:var(--good-soft);color:var(--good)}
 .note b{color:var(--ink)}
+.calrow{display:grid;grid-template-columns:1fr auto;gap:10px;padding:6px 14px;
+  border-bottom:1px solid var(--line);font-size:12.5px;align-items:baseline}
+.calrow:last-child{border-bottom:none}
+.calrow span{color:var(--ink-2)}
+.calrow b{font-family:var(--mono);font-size:13px;font-weight:600}
+.calrow b.up{color:var(--bad)} .calrow b.down{color:var(--good)}
+.calnote{padding:9px 14px;font-size:12px;line-height:1.5;color:var(--ink-2);
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.calnote b{color:var(--ink)}
 .foot{max-width:1400px;margin:0 auto;padding:4px 18px 40px;color:var(--ink-3);font-size:11.5px;
   line-height:1.6}
 .foot b{color:var(--ink-2)}
@@ -196,6 +205,7 @@ input{font:inherit;color:inherit}
         <div class="cols" id="cols"></div></div>
     </div>
     <aside>
+      <div class="card" id="calCard"></div>
       <div class="card" id="rosterCard"></div>
       <div class="card"><h2>Watch out for</h2><div class="in" id="notes"></div></div>
     </aside>
