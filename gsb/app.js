@@ -13,6 +13,20 @@ var FLEXP = {FLEX:["RB","WR","TE"], SUPER_FLEX:["QB","RB","WR","TE"]};
 var KEY = "gsb.highstakes.v1";
 var LONG = {QB:"quarterback", RB:"running back", WR:"receiver", TE:"tight end",
             K:"kicker", DEF:"defense"};
+// A defense is stored as its nickname ("Broncos") but ESPN shows the city, so a
+// search for "denver" found nothing and told her he was already taken.
+var CITY = {ARI:"arizona", ATL:"atlanta", BAL:"baltimore", BUF:"buffalo", CAR:"carolina",
+  CHI:"chicago", CIN:"cincinnati", CLE:"cleveland", DAL:"dallas", DEN:"denver",
+  DET:"detroit", GB:"green bay", HOU:"houston", IND:"indianapolis", JAX:"jacksonville",
+  KC:"kansas city", LAC:"los angeles chargers", LAR:"los angeles rams", LV:"las vegas",
+  MIA:"miami", MIN:"minnesota", NE:"new england", NO:"new orleans", NYG:"new york giants",
+  NYJ:"new york jets", PHI:"philadelphia", PIT:"pittsburgh", SEA:"seattle",
+  SF:"san francisco", TB:"tampa bay", TEN:"tennessee", WAS:"washington"};
+function searchText(p) {
+  var t = p.name.toLowerCase();
+  if (p.pos === "DEF" && CITY[p.team]) t += " " + CITY[p.team] + " defense dst";
+  return t + " " + (p.team || "").toLowerCase();
+}
 
 var CONFIG = {
   name: "GSB High Stakes",  // ESPN league
@@ -40,7 +54,7 @@ var RULES = {
   alsoOut: ["Isiah Pacheco", "Josh Jacobs"]
 };
 
-var draft = null, board = null, sel = 0, results = [], pickOffset = 0;
+var draft = null, board = null, sel = 0, results = [], pickOffset = 0, lastPickTap = 0;
 
 /* ---------- state ---------- */
 function save() {
@@ -279,7 +293,7 @@ function poolShare() {
   var made = draft.order.length;
   if (!made) return 1;
   var n = 0;
-  draft.order.forEach(function (sid) { var p = BYID[sid]; if (p && p.eaOk && p.pos !== "DEF") n++; });
+  draft.order.forEach(function (sid) { var p = BYID[sid]; if (p && p.eaOk && !p.late) n++; });
   return (n + 8) / (made + 8);
 }
 
@@ -287,7 +301,7 @@ function poolShare() {
 // than a guess whenever the read is not there.
 function keepMap(avail, now, target) {
   if (target <= now) return null;
-  var pool = avail.filter(function (p) { return p.eaOk && p.pos !== "DEF"; });
+  var pool = avail.filter(function (p) { return p.eaOk && !p.late; });
   if (pool.length < 25) return null;                       // silence rule
   var others = 0;
   for (var k = now; k < target; k++) if (MY.indexOf(k) < 0) others++;   // her own picks are not a risk
@@ -331,7 +345,10 @@ var MY = myPicks();
 // Every round gate and every survival window keys off this. One un-logged pick
 // shifts all of them silently, so it has to be correctable by hand in two seconds.
 function pickNow() { return Math.max(1, draft.order.length + 1 + pickOffset); }
-function roundNow() { return Math.floor(draft.order.length / CONFIG.teams) + 1; }
+// Must derive from pickNow(), not from order.length: otherwise correcting the pick
+// number moves the survival windows but leaves every policy gate a round behind, and
+// the draft can end with an unfilled defense slot.
+function roundNow() { return Math.floor((pickNow() - 1) / CONFIG.teams) + 1; }
 function open_() { return board.players.filter(function (p) { return !draft.drafted.has(p.sid); }); }
 function mine_() { return board.players.filter(function (p) { return draft.mine.has(p.sid); }); }
 function tv(t) { return "var(--t" + Math.min(t || 11, 11) + ")"; }
@@ -714,36 +731,57 @@ var qEl = document.getElementById("q"), resEl = document.getElementById("res");
 function search() {
   var t = qEl.value.trim().toLowerCase();
   if (t.length < 2) { resEl.hidden = true; results = []; return; }
-  var open = open_();
-  var starts = [], contains = [];
-  open.forEach(function (p) {
-    var n = p.name.toLowerCase();
-    if (n.indexOf(t) === 0 || n.split(" ").some(function (w) { return w.indexOf(t) === 0; }))
-      starts.push(p);
-    else if (n.indexOf(t) >= 0) contains.push(p);
+  var starts = [], contains = [], already = [];
+  board.players.forEach(function (p) {
+    var hay = searchText(p);
+    var hit = hay.indexOf(t) === 0 || hay.split(" ").some(function (w) { return w.indexOf(t) === 0; })
+      ? 1 : hay.indexOf(t) >= 0 ? 2 : 0;
+    if (!hit) return;
+    // Already-marked players stay findable. Tapping "Taken" when she meant "We got
+    // him" used to remove a player from every panel with no way back short of
+    // undoing everything after him.
+    if (draft.drafted.has(p.sid)) already.push(p);
+    else if (hit === 1) starts.push(p);
+    else contains.push(p);
   });
-  results = starts.concat(contains).slice(0, 7);
+  results = starts.concat(contains).slice(0, 6).concat(already.slice(0, 2));
+  var openCount = Math.min(starts.length + contains.length, 6);
   sel = 0;
   if (!results.length) {
-    resEl.innerHTML = '<div class="none">No one by that name is still available. '
-      + "They may already be taken.</div>";
+    resEl.innerHTML = '<div class="none">No player found by that name. Check the '
+      + "spelling, or try just the last name.</div>";
     resEl.hidden = false; return;
   }
   resEl.innerHTML = results.map(function (p, i) {
-    return '<div class="row' + (i === sel ? " sel" : "") + '" data-i="' + i + '">'
+    var gone = i >= openCount;
+    var mine = draft.mine.has(p.sid);
+    return '<div class="row' + (i === sel ? " sel" : "") + (gone ? " gone" : "")
+      + '" data-i="' + i + '">'
       + '<span class="pos ' + p.pos + '">' + (p.pos === "DEF" ? "DST" : p.pos) + "</span>"
-      + '<span><span class="nm">' + esc(p.name) + "</span>" + flags(p)
-      + '<div class="sub">' + LONG[p.pos] + " · " + esc(p.team) + " · bye " + (p.bye || "?")
+      + '<span><span class="nm">' + esc(p.name) + "</span>" + (gone ? "" : flags(p))
+      + '<div class="sub">' + LONG[p.pos] + " \u00b7 " + esc(p.team) + " \u00b7 bye "
+      + (p.bye || "?") + (gone ? (mine ? " \u00b7 on our team" : " \u00b7 already marked taken") : "")
       + "</div></span>"
-      + '<span class="take" data-act="taken" data-i="' + i + '">Taken</span>'
-      + '<span class="take" data-act="ours" data-i="' + i + '">We got him</span></div>';
+      + (gone
+        ? '<span class="take" data-act="undo" data-i="' + i + '">Put him back</span>'
+          + (mine ? "" : '<span class="take" data-act="ours" data-i="' + i + '">Actually ours</span>')
+        : '<span class="take" data-act="taken" data-i="' + i + '">Taken</span>'
+          + '<span class="take" data-act="ours" data-i="' + i + '">We got him</span>')
+      + "</div>";
   }).join("");
   resEl.hidden = false;
 }
-function choose(i, ours) {
+
+function choose(i, ours, undo) {
   var p = results[i];
   if (!p) return;
-  mark(p.sid, ours);
+  if (undo) {                       // put a mis-marked player back on the board
+    if (draft.drafted.has(p.sid)) mark(p.sid, false);
+  } else if (draft.drafted.has(p.sid) && ours && !draft.mine.has(p.sid)) {
+    draft.mine.add(p.sid); save(); render();   // "Taken" should have been "We got him"
+  } else {
+    mark(p.sid, ours);
+  }
   qEl.value = ""; resEl.hidden = true; results = []; qEl.focus();
 }
 qEl.addEventListener("input", search);
@@ -760,14 +798,22 @@ function paint() {
 }
 resEl.addEventListener("click", function (e) {
   var b = e.target.closest("[data-act]");
-  if (b) { choose(+b.dataset.i, b.dataset.act === "ours"); return; }
+  if (b) { choose(+b.dataset.i, b.dataset.act === "ours", b.dataset.act === "undo"); return; }
   var row = e.target.closest(".row");
   if (row) choose(+row.dataset.i, false);
 });
 document.addEventListener("click", function (e) {
   if (!e.target.closest(".mark")) resEl.hidden = true;
   var act = e.target.closest("[data-act]");
-  if (act && act.closest(".pick")) { mark(act.dataset.sid, act.dataset.act === "ours"); return; }
+  if (act && act.closest(".pick")) {
+    // The card re-renders on every mark, so a fast double tap would land on whoever
+    // moved into that row. Ignore a second press inside the redraw window.
+    var t = Date.now();
+    if (t - lastPickTap < 450) return;
+    lastPickTap = t;
+    mark(act.dataset.sid, act.dataset.act === "ours");
+    return;
+  }
   if (e.target.closest(".pick")) return;   // the row is not a button; use one
   var pr = e.target.closest(".pr");
   if (pr) { mark(pr.dataset.sid, e.metaKey || e.ctrlKey || e.shiftKey); }
