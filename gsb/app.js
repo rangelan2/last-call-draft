@@ -142,6 +142,13 @@ function build() {
       adp: raw.ea != null ? raw.ea : (raw.a[fmt] != null ? raw.a[fmt] : raw.a.PPR),
       ecr: e ? e[0] : null, ecrBest: e ? e[1] : null, ecrWorst: e ? e[2] : null,
       ecrTierRaw: e ? e[4] : null,
+      // Raw ESPN ADP only. build() otherwise substitutes Sleeper ADP for the 74
+      // players ESPN has no number for, which is a different scale entirely.
+      ea: raw.ea != null ? raw.ea : null,
+      // 217 of 365 ESPN ADPs pile into a saturated 160-172 band (152 share the
+      // single value 170). Past 160 there is no read, so we say nothing.
+      eaOk: raw.ea != null && raw.ea <= 160,
+      sdx: e ? e[3] : null,   // FantasyPros stdev of expert rank; already parsed, was discarded
       rookie: raw.k, inj: raw.i,
       avail: forcedOut ? "out" : (raw.av || "ok"),
       irOk: raw.ir === 1 || forcedOut,
@@ -210,37 +217,105 @@ function build() {
 }
 
 /* ---------- market model ---------- */
-// ESPN publishes an average draft position but no dispersion, so the spread is
-// borrowed from Fantasy Football Calculator, which measures the standard deviation
-// of actual draft slots across 1,837 real 12-team half-PPR drafts. Across ADP bands
-// that spread is close to linear: sd is about 10 to 12 percent of ADP. The fit below
-// is regressed off those bands.
-function adpSpread(adp) { return 0.79 + 0.105 * adp; }
-// Abramowitz-Stegun 7.1.26, good to ~1e-7.
-function erf(x) {
-  var s = x < 0 ? -1 : 1; x = Math.abs(x);
-  var t = 1 / (1 + 0.3275911 * x);
-  return s * (1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
-    - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x));
+//
+// How likely is a player to still be on the board at a later pick.
+//
+// The first version of this used a normal CDF around ADP, conditioned on the player
+// being available now. It was wrong in the one case that matters most: for a man who
+// has ALREADY outlasted his ADP, both the numerator and the denominator sit 25-plus
+// sigma into a Gaussian tail, underflow, and the function returns 0.0%. It told us a
+// player who had survived 25 picks past his ADP would certainly not survive five
+// more, which is exactly backwards and exactly the "he fell to us" moment this board
+// exists to catch. The replacement is a logistic with a small exponential offset, so
+// a fallen player keeps real mass, and it is calibrated to the size of the window.
+
+function clampN(x, a, c) { return x < a ? a : x > c ? c : x; }
+
+// Analysts who disagree about a player also draft him over a wider range. The
+// FantasyPros stdev of expert rank regresses on ECR as sd = 1.339 + 0.1607*ecr
+// (R2 = 0.77), so the ratio is a per-player width multiplier.
+function shapeOf(p) {
+  if (p.sdx == null || p.ecr == null) return 1;
+  return clampN(p.sdx / (1.339 + 0.1607 * p.ecr), 0.6, 1.8);
 }
-// Chance a player is still on the board at `pick`, modelling his draft slot as
-// normal around ESPN ADP. Conditioned on him being available now, so the estimate
-// tightens as the draft runs rather than drifting.
-function survives(p, pick, from) {
-  if (!p.adp) return null;
-  var tail = function (k) { return 1 - 0.5 * (1 + erf((k - p.adp) / (adpSpread(p.adp) * Math.SQRT2))); };
-  var at = tail(pick);
-  if (from == null || from <= 1) return at;
-  var now = tail(from);
-  return now > 0.02 ? Math.min(at / now, 1) : at;
+function sdOf(p) { return Math.max(2.5, (2.5 + 0.18 * p.ea) * shapeOf(p)); }
+
+function sCurve(p, x) {
+  var s = 0.5513 * sdOf(p);
+  var mkt = 1 / (1 + Math.exp((x - p.ea) / s));
+  var off = Math.exp(-Math.max(0, x - p.ea) / 55);   // the tail that saves fallen players
+  return 0.93 * mkt + 0.07 * off;
 }
-// How far our board disagrees with the room, in picks. Positive means we rank him
-// higher than ESPN drafts him, so he should reach us later than his value deserves.
-// Kickers and defenses are excluded: we park them near rank 380 on purpose, which
-// would otherwise read as a 300-pick "bargain".
-function edgeVsMarket(p) {
-  if (!p.adp || p.late) return null;
-  return p.adp - p.rank;
+function keepRaw(p, now, target) {
+  if (!p.eaOk) return null;
+  var a = sCurve(p, target), b = sCurve(p, now);
+  return b > 1e-9 ? clampN(a / b, 0, 1) : 0;
+}
+
+// Tilt every probability by a single exponential factor until the expected number of
+// departures equals the number of picks that will actually happen. Untilted, the
+// model under-predicts departures by 18-36% from the third round on, which is the
+// dangerous direction: it says wait, and she loses the player.
+function tiltTo(qs, T) {
+  function tot(l) {
+    var e = Math.exp(l), s = 0;
+    for (var i = 0; i < qs.length; i++) { var q = qs[i]; s += q * e / (1 - q + q * e); }
+    return s;
+  }
+  var lo = -8, hi = 8, lam;
+  if (tot(lo) >= T) lam = lo;
+  else if (tot(hi) <= T) lam = hi;
+  else {
+    for (var i = 0; i < 40; i++) { var mid = (lo + hi) / 2; if (tot(mid) < T) lo = mid; else hi = mid; }
+    lam = (lo + hi) / 2;
+  }
+  var e = Math.exp(lam);
+  return qs.map(function (q) { return clampN(q * e / (1 - q + q * e), 0, 1); });
+}
+
+var BYID = {};
+// What share of picks are coming out of the pool we can actually model.
+function poolShare() {
+  var made = draft.order.length;
+  if (!made) return 1;
+  var n = 0;
+  draft.order.forEach(function (sid) { var p = BYID[sid]; if (p && p.eaOk && p.pos !== "DEF") n++; });
+  return (n + 8) / (made + 8);
+}
+
+// The map every surface reads, so no two panels can disagree. Returns null rather
+// than a guess whenever the read is not there.
+function keepMap(avail, now, target) {
+  if (target <= now) return null;
+  var pool = avail.filter(function (p) { return p.eaOk && p.pos !== "DEF"; });
+  if (pool.length < 25) return null;                       // silence rule
+  var others = 0;
+  for (var k = now; k < target; k++) if (MY.indexOf(k) < 0) others++;   // her own picks are not a risk
+  var T = Math.min(others * poolShare(), pool.length * 0.95);
+  var qs = pool.map(function (p) { return 1 - keepRaw(p, now, target); });
+  var tq = tiltTo(qs, T);
+  var out = {};
+  pool.forEach(function (p, i) { out[p.sid] = 1 - tq[i]; });
+  return out;
+}
+
+// Bands, deliberately pessimistic, and deliberately wordless about the exact number.
+//
+// Backtested against simulated drafts the model over-predicts survival by 12 to 25
+// points through the 30-70% range, which is exactly where the wait-or-take decision
+// lives, and it errs in the direction that costs her the player. So the thresholds
+// are raised well above their nominal values, and no percentage is printed: the
+// ordering is trustworthy, the second decimal is not, and "54%" reads as a precision
+// this model has not earned. She needs to know whether to wait, not a number.
+function bandOf(k) {
+  return k >= 0.90 ? "wait" : k >= 0.74 ? "wait" : k >= 0.55 ? "risk" : "now";
+}
+function bandWords(k, nextPick) {
+  if (k >= 0.90) return "Safe to wait &mdash; he should still be there at your pick " + nextPick;
+  if (k >= 0.74) return "Probably still there at your pick " + nextPick;
+  if (k >= 0.55) return "Might not last to your pick " + nextPick;
+  if (k >= 0.30) return "Likely gone before your pick " + nextPick + " &mdash; take him here if you want him";
+  return "He will be gone. This is your last realistic shot at him";
 }
 
 /* ---------- helpers ---------- */
@@ -399,33 +474,27 @@ function stashes() {
                 .sort(function (a, b) { return a.rank - b.rank; }).slice(0, 3);
 }
 
-// Plain-English survival, only where ADP still carries signal. Past roughly pick 160
-// ESPN ADP is averaged over so few real drafts that a percentage would be invented.
-function lastsLine(p, nextPick) {
-  if (!p.adp || p.adp >= 160 || !nextPick) return null;
-  var s = survives(p, nextPick, pickNow());
-  if (s == null) return null;
-  var pct = Math.round(s * 100);
-  if (pct >= 80) return {cls: "wait", txt: "Very likely still here at your next pick (" + pct + "%)"};
-  if (pct >= 55) return {cls: "wait", txt: "Probably still here next turn (" + pct + "%)"};
-  if (pct >= 30) return {cls: "risk", txt: "Coin flip to last to your next pick (" + pct + "%)"};
-  if (pct >= 10) return {cls: "now",  txt: "Unlikely to last (" + pct + "%) &mdash; take him here or lose him"};
-  return {cls: "now", txt: "Will not last. This is your last realistic shot at him"};
+// One shared read per render. A null keep is rendered as nothing, never as a dash
+// or a 50% guess: silence is the honest output when there is no signal.
+function lastsLine(p, km, nextPick) {
+  if (!km || !nextPick) return null;
+  var k = km[p.sid];
+  if (k == null) return null;
+  return {cls: bandOf(k), txt: bandWords(k, nextPick)};
 }
 
 // What deferring actually costs: the drop from the best man at a position now to the
-// best one likely to survive to the next turn. This is the exploitation the owner
-// asked for, expressed as a consequence rather than a statistic.
-function waitCost(pos, nextPick) {
-  if (!nextPick) return null;
+// best one likely to survive to the next turn. This is the exploitation, phrased as
+// a consequence rather than a statistic.
+function waitCost(pos, km, nextPick) {
+  if (!km || !nextPick) return null;
   var lu = lineup();
   var pool = open_().filter(function (p) {
     return p.pos === pos && !p.late && !blockedReason(p, lu); });
   if (pool.length < 2) return null;
   var now = pool[0];
-  var later = pool.filter(function (p) {
-    var s = survives(p, nextPick, pickNow());
-    return s != null && s >= 0.55; })[0];
+  if (km[now.sid] != null && km[now.sid] >= 0.74) return {now: now, free: true};
+  var later = pool.filter(function (p) { return km[p.sid] != null && km[p.sid] >= 0.74; })[0];
   if (!later || later.sid === now.sid) return null;
   return {now: now, later: later, drop: Math.round(now.blendVor - later.blendVor)};
 }
@@ -461,6 +530,7 @@ function renderTake() {
   var recs = advise(), st = stashes();
   var n = pickNow(), ours = MY.indexOf(n) >= 0;
   var nextPick = MY.filter(function (x) { return x > n; })[0] || null;
+  var km = nextPick ? keepMap(open_(), n, nextPick) : null;
   var html = "<h2>" + (ours ? "Your pick &mdash; take one of these"
                              : "Best on the board right now") + "</h2>";
   if (!ours) html += '<div class="notyet">Not your pick yet. If another team takes '
@@ -472,7 +542,7 @@ function renderTake() {
       + '<span><span class="nm">' + esc(r.p.name) + "</span>" + flags(r.p)
       + '<div class="why">' + esc(r.p.team) + " · bye " + (r.p.bye || "?") + " — "
       + esc(r.why) + "</div>"
-      + (function () { var l = lastsLine(r.p, nextPick);
+      + (function () { var l = lastsLine(r.p, km, nextPick);
           return l ? '<div class="lasts ' + l.cls + '">' + l.txt + "</div>" : ""; })()
       + "</span>"
       + '<span class="acts">'
@@ -482,9 +552,13 @@ function renderTake() {
       + esc(r.p.sid) + '">We got him</button></span></div>';
   });
   // One line on what waiting costs at the position we are being pointed at.
-  if (recs.length && nextPick) {
-    var wc = waitCost(recs[0].p.pos, nextPick);
-    if (wc && wc.drop > 0) {
+  if (recs.length && nextPick && km) {
+    var wc = waitCost(recs[0].p.pos, km, nextPick);
+    if (wc && wc.free) {
+      html += '<div class="waitcost"><b>No rush on ' + LONG[recs[0].p.pos] + ".</b> "
+        + esc(wc.now.name) + " should still be there at your pick " + nextPick
+        + ", so spend this pick on a position that will not keep.</div>";
+    } else if (wc && wc.drop > 0) {
       html += '<div class="waitcost">' + (ours
         ? "<b>If you pass on " + LONG[recs[0].p.pos] + " here:</b> the best one likely to "
           + "reach your next pick (" + nextPick + ") is " + esc(wc.later.name) + ", about "
@@ -722,6 +796,7 @@ document.getElementById("reset").addEventListener("click", function () {
 
 restore();
 board = build();
+board.players.forEach(function (p) { BYID[p.sid] = p; });
 render();
 qEl.focus();
 })();
