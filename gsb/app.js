@@ -667,61 +667,104 @@ function renderTurn() {
     + " of " + CONFIG.rounds;
 }
 
-// A standing, always-visible statement of the first three picks, so there is never a
-// moment where she is guessing whether the board is following the plan or improvising.
+// A standing statement of the first three picks that names actual players rather
+// than restating the rule. For a pick that has not arrived yet it names the best man
+// likely to still be there, and says so, rather than promising someone who will be
+// gone.
+function likelyAt(pick, ok) {
+  var open = open_(), cands = open.filter(ok);
+  if (!cands.length) return null;
+  if (pick <= pickNow()) return cands[0];
+  var km = keepMap(open, pickNow(), pick);
+  if (!km) return cands[0];
+  var survive = cands.filter(function (p) { return km[p.sid] == null || km[p.sid] >= 0.5; });
+  return survive[0] || cands[0];
+}
+function nm(p) { return "<b>" + esc(p.name) + "</b>"; }
+
 function renderPlan() {
   var el = document.getElementById("planCard");
-  var i = MY.indexOf(pickNow());
-  var step = MY.filter(function (x) { return x < pickNow(); }).length;   // 0,1,2 = which pick she is on
+  var step = MY.filter(function (x) { return x < pickNow(); }).length;
   if (step > 2) { el.hidden = true; return; }
   el.hidden = false;
 
   var mine = mine_(), open = open_();
-  function got(n) { return mine[n] ? mine[n].name : null; }
-  function avail(nm) { return open.some(function (p) { return p.name === nm; }); }
-  var bow = avail(SCRIPT.teBest), mcb = avail(SCRIPT.teNext);
+  function got(k) { return mine[k] ? mine[k].name : null; }
+  function up(nmx) { return open.filter(function (p) { return p.name === nmx; })[0]; }
+  var bow = up(SCRIPT.teBest), mcb = up(SCRIPT.teNext);
+  var tookChase = mine.some(function (p) { return p.name === "Ja'Marr Chase"; });
+  // Named players for a pick that has not arrived are a projection, not a promise.
+  var soon = function (k) {
+    return MY[k] > pickNow() ? ' <em>As the board stands now.</em>' : "";
+  };
+
+  // ---- round 1 -----------------------------------------------------------
+  var s1;
+  if (got(0)) s1 = null;
+  else {
+    var pick1 = null, gone = [];
+    for (var k = 0; k < SCRIPT.round1.length; k++) {
+      var c = up(SCRIPT.round1[k]);
+      if (c) { pick1 = c; break; }
+      gone.push(SCRIPT.round1[k].split(" ").slice(-1)[0]);
+    }
+    s1 = pick1
+      ? "Take " + nm(pick1) + "."
+        + (gone.length ? " " + gone.join(" and ") + " already gone." : "") + soon(0)
+      : "All three are gone. Best player available.";
+  }
+
+  // ---- round 2 -----------------------------------------------------------
+  var s2;
+  if (got(1)) s2 = null;
+  else if (bow && !mcb) {
+    s2 = "Take " + nm(bow) + ", the only one of the top two left." + soon(1);
+  } else {
+    var wantRB = tookChase || (mine[0] && mine[0].pos === "WR");
+    var lu = lineup();
+    var cand = likelyAt(MY[1], function (p) {
+      if (p.pos === "TE" || p.late) return false;
+      if (blockedReason(p, lu)) return false;
+      return wantRB ? p.pos === "RB" : (p.pos === "RB" || p.pos === "WR");
+    });
+    var lead = cand
+      ? "Take " + nm(cand) + (wantRB ? ", the best running back." : ", the best back or receiver.")
+      : (wantRB ? "Best running back available." : "Best back or receiver available.");
+    if (bow && mcb) lead += " <b>No tight end here</b> &mdash; Bowers and McBride are both "
+      + "still on the board, so one should reach round 3.";
+    else if (mcb) lead += " <b>No tight end here</b> &mdash; only McBride is left, so wait "
+      + "for round 3.";
+    else if (!bow && !mcb) lead += " Both tight ends are gone.";
+    s2 = lead + soon(1);
+  }
+
+  // ---- round 3 -----------------------------------------------------------
+  var s3;
+  if (got(2)) s3 = null;
+  else if (mine.some(function (p) { return p.pos === "TE"; }))
+    s3 = "You already have your tight end. Best player available.";
+  else {
+    var te = likelyAt(MY[2], function (p) {
+      return p.name === SCRIPT.teBest || p.name === SCRIPT.teNext; });
+    if (te) s3 = "Take " + nm(te) + "."
+      + (te.name === SCRIPT.teBest && mcb ? " Bowers ahead of McBride when both are there." : "")
+      + soon(2);
+    else s3 = "Bowers and McBride are both gone. Best player available, and the board "
+      + "takes over from here.";
+  }
 
   var steps = [
-    {pk: MY[0], head: "Round 1",
-     body: "Take <b>Gibbs</b> if he is there. If not, <b>Bijan</b>. If neither, "
-         + "<b>Ja'Marr Chase</b>, no questions.",
-     done: got(0)},
-    {pk: MY[1], head: "Round 2",
-     body: (function () {
-       if (step < 1) return "Best back or receiver. <b>Only</b> take a tight end here if "
-         + "Bowers is the one and only one of the top two still left.";
-       var tookChase = mine.some(function (p) { return p.name === "Ja'Marr Chase"; });
-       var base = tookChase ? "Best <b>running back</b> available (you took Chase)."
-                            : "Best <b>back or receiver</b> available.";
-       if (bow && mcb) return base + " Bowers and McBride are <b>both still here</b>, so "
-         + "no tight end now, take one in round 3.";
-       if (bow && !mcb) return "<b>Take Bowers.</b> He is the only one of the two left.";
-       if (!bow && mcb) return base + " Only McBride is left, so <b>wait</b> and take him "
-         + "in round 3 if he lasts.";
-       return base + " Both tight ends are gone.";
-     })(),
-     done: got(1)},
-    {pk: MY[2], head: "Round 3",
-     body: (function () {
-       if (step < 2) return "Take the tight end you waited for: <b>Bowers</b> if he is "
-         + "there, otherwise <b>McBride</b>.";
-       if (mine.some(function (p) { return p.pos === "TE"; }))
-         return "You already have your tight end. Best player available.";
-       if (bow) return "<b>Take Bowers.</b> This is the pick you waited for.";
-       if (mcb) return "<b>Take McBride.</b> This is the pick you waited for.";
-       return "Both are gone. Best player available, and the board takes over from here.";
-     })(),
-     done: got(2)}
+    {pk: MY[0], head: "Round 1", body: s1, done: got(0)},
+    {pk: MY[1], head: "Round 2", body: s2, done: got(1)},
+    {pk: MY[2], head: "Round 3", body: s3, done: got(2)}
   ];
-
   el.innerHTML = "<h2>Your plan for the first three picks</h2>"
     + steps.map(function (st, k) {
         return '<div class="pstep' + (k === step ? " now" : "") + (st.done ? " done" : "") + '">'
           + '<span class="num">' + (st.done ? "&#10003;" : k + 1) + "</span>"
           + "<span><b>" + st.head + "</b> <em>pick " + st.pk + "</em>"
-          + (st.done ? '<div class="txt">Took <b>' + esc(st.done) + "</b></div>"
-                     : '<div class="txt">' + st.body + "</div>")
-          + "</span></div>";
+          + '<div class="txt">' + (st.done ? "Took <b>" + esc(st.done) + "</b>" : st.body)
+          + "</div></span></div>";
       }).join("");
 }
 
