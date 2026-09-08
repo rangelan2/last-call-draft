@@ -582,7 +582,11 @@ function waitCost(pos, km, nextPick) {
 
 // Rounds 1 to 3 are scripted. Returns a forced pick, or null to hand back to advise().
 function scriptedPick() {
-  var i = MY.indexOf(pickNow());
+  // Keyed to her NEXT pick, not only the moment she is on the clock, so the plan is
+  // visible and consistent from the first pick of the draft rather than appearing
+  // the instant she has to act on it.
+  var next = MY.filter(function (x) { return x >= pickNow(); })[0];
+  var i = MY.indexOf(next);
   if (i < 0 || i > 2) return null;
   var open = open_(), mine = mine_();
   function get(nm) { return open.filter(function (p) { return p.name === nm; })[0]; }
