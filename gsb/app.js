@@ -22,9 +22,16 @@ var CITY = {ARI:"arizona", ATL:"atlanta", BAL:"baltimore", BUF:"buffalo", CAR:"c
   MIA:"miami", MIN:"minnesota", NE:"new england", NO:"new orleans", NYG:"new york giants",
   NYJ:"new york jets", PHI:"philadelphia", PIT:"pittsburgh", SEA:"seattle",
   SF:"san francisco", TB:"tampa bay", TEN:"tennessee", WAS:"washington"};
+function normTxt(x) {
+  return String(x).toLowerCase()
+    .replace(/[.'\u2019`]/g, "")          // Ja'Marr -> jamarr, A.J. -> aj
+    .replace(/[-\/]/g, " ")
+    .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, "")
+    .replace(/\s+/g, " ").trim();
+}
 function searchText(p) {
-  var t = p.name.toLowerCase();
-  if (p.pos === "DEF" && CITY[p.team]) t += " " + CITY[p.team] + " defense dst";
+  var t = normTxt(p.name);
+  if (p.pos === "DEF" && CITY[p.team]) t += " " + CITY[p.team] + " defense dst d st";
   return t + " " + (p.team || "").toLowerCase();
 }
 
@@ -729,11 +736,15 @@ function render() {
 }
 
 /* ---------- marking ---------- */
-function mark(sid, isOurs) {
+// Additive unless undoing is asked for explicitly. It used to be a bare toggle, so a
+// repeat tap on someone already drafted quietly returned him to the board.
+function mark(sid, isOurs, undo) {
   if (draft.drafted.has(sid)) {
+    if (!undo) return;
     draft.drafted.delete(sid); draft.mine.delete(sid);
     draft.order = draft.order.filter(function (x) { return x !== sid; });
   } else {
+    if (undo) return;
     draft.drafted.add(sid); draft.order.push(sid);
     if (isOurs) draft.mine.add(sid);
   }
@@ -742,7 +753,7 @@ function mark(sid, isOurs) {
 
 var qEl = document.getElementById("q"), resEl = document.getElementById("res");
 function search() {
-  var t = qEl.value.trim().toLowerCase();
+  var t = normTxt(qEl.value);
   if (t.length < 2) { resEl.hidden = true; results = []; return; }
   var starts = [], contains = [], already = [];
   board.players.forEach(function (p) {
@@ -761,8 +772,8 @@ function search() {
   var openCount = Math.min(starts.length + contains.length, 6);
   sel = 0;
   if (!results.length) {
-    resEl.innerHTML = '<div class="none">No player found by that name. Check the '
-      + "spelling, or try just the last name.</div>";
+    resEl.innerHTML = '<div class="none">Nothing matched that. Try just the last name, '
+      + "or the city for a defense. This does not mean he is taken.</div>";
     resEl.hidden = false; return;
   }
   resEl.innerHTML = results.map(function (p, i) {
@@ -788,11 +799,14 @@ function search() {
 function choose(i, ours, undo) {
   var p = results[i];
   if (!p) return;
+  var now = Date.now();
+  if (now - lastPickTap < 400) return;    // same redraw-window guard as the pick card
+  lastPickTap = now;
   // A bare tap on an already-marked row used to fall through to mark(), which is a
   // toggle, silently returning a player to the board — including one on her roster.
   if (draft.drafted.has(p.sid) && !undo && !ours) { resEl.hidden = true; return; }
   if (undo) {                       // put a mis-marked player back on the board
-    if (draft.drafted.has(p.sid)) mark(p.sid, false);
+    if (draft.drafted.has(p.sid)) mark(p.sid, false, true);
   } else if (draft.drafted.has(p.sid) && ours && !draft.mine.has(p.sid)) {
     draft.mine.add(p.sid); save(); render();   // "Taken" should have been "We got him"
   } else {
@@ -850,7 +864,7 @@ document.addEventListener("click", function (e) {
 });
 document.getElementById("undo").addEventListener("click", function () {
   var last = draft.order[draft.order.length - 1];
-  if (last) mark(last, false);
+  if (last) mark(last, false, true);
 });
 document.getElementById("reset").addEventListener("click", function () {
   if (!confirm("Clear every pick and start the draft over?")) return;
